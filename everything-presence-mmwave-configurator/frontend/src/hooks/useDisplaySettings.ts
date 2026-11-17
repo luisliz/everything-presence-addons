@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
-import { MARKER_SCALE_MAX, MARKER_SCALE_MIN, normalizeDeviceMarkerSettings } from '../utils/deviceMarkerSettings';
+import { useCallback, useEffect, useState } from 'react';
+import { MARKER_SCALE_MAX, MARKER_SCALE_MIN, normalizeDeviceMarkerSettings } from '../utils/deviceMarkerSettings.ts';
 
 export interface DisplaySettings {
   showWalls: boolean;
@@ -27,6 +27,7 @@ export interface DisplaySettings {
 }
 
 const STORAGE_KEY = 'everything-presence-zone-configurator-display-settings';
+const SETTINGS_VERSION = 2;
 
 const defaultSettings: DisplaySettings = {
   showWalls: true,
@@ -34,7 +35,7 @@ const defaultSettings: DisplaySettings = {
   showDoors: true,
   showZones: true,
   showDeviceIcon: true,
-  showDeviceRadar: false,
+  showDeviceRadar: true,
   deviceMarkerStyle: 'icon',
   deviceMarkerScale: 0.5,
   deviceMarkerOpacity: 1,
@@ -45,7 +46,7 @@ const defaultSettings: DisplaySettings = {
   showZoneLabels: true,
   zoneLabelScale: 1,
   showAlignedDirection: false,
-  clipRadarToWalls: true,
+  clipRadarToWalls: false,
   units: 'metric',
   // Heatmap defaults
   heatmapEnabled: false,
@@ -54,22 +55,22 @@ const defaultSettings: DisplaySettings = {
 };
 
 export const normalizeDisplaySettings = (value: unknown): DisplaySettings => {
-  const parsed = value && typeof value === 'object' ? value as Partial<DisplaySettings> : {};
+  const { version, ...parsed } = value && typeof value === 'object' ? value as Partial<DisplaySettings> & { version?: number } : {};
+  // Version 2 shows the full, unclipped cone; older stored settings get that once.
+  const migrated = Number(version) >= SETTINGS_VERSION
+    ? parsed
+    : { ...parsed, showDeviceRadar: defaultSettings.showDeviceRadar, clipRadarToWalls: defaultSettings.clipRadarToWalls };
   return {
     ...defaultSettings,
-    ...parsed,
-    ...normalizeDeviceMarkerSettings(parsed),
+    ...migrated,
+    ...normalizeDeviceMarkerSettings(migrated),
   };
 };
 
 const loadSettings = (): DisplaySettings => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Merge with defaults to handle any new settings added in future
-      return normalizeDisplaySettings(parsed);
-    }
+    if (stored) return normalizeDisplaySettings(JSON.parse(stored));
   } catch (e) {
     console.warn('Failed to load display settings from localStorage:', e);
   }
@@ -78,7 +79,7 @@ const loadSettings = (): DisplaySettings => {
 
 const saveSettings = (settings: DisplaySettings): void => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, version: SETTINGS_VERSION }));
   } catch (e) {
     console.warn('Failed to save display settings to localStorage:', e);
   }

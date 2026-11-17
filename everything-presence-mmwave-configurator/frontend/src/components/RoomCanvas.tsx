@@ -1,5 +1,5 @@
-import React, { useMemo, useRef, useState } from 'react';
-import { FurnitureInstance, Door } from '../api/types';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { DeviceProfile, FurnitureInstance, Door } from '../api/types';
 import { getFurnitureIcon } from '../furniture/icons';
 import { CustomFurniturePreview, getCustomFurnitureType } from '../furniture/customVisual';
 import { FloorMaterialDefs, getFloorFill } from './FloorMaterials';
@@ -9,6 +9,9 @@ import { formatLengthLabel } from '../utils/lengthLabels';
 import { getDoorGeometry } from '../utils/doorGeometry';
 import { canvasLayerProps } from '../utils/canvasLayers';
 import { MARKER_SCALE_MAX, MARKER_SCALE_MIN } from '../utils/deviceMarkerSettings';
+import { type CanvasCoverage, type SensorCoverageConfig, resolveCanvasCoverage, segmentIntersection } from '../utils/coverage';
+import { useMediaQuery } from '../hooks/useMediaQuery';
+import { CoverageLayer } from './canvas/CoverageLayer';
 
 export interface Point {
   x: number;
@@ -27,6 +30,33 @@ export interface DevicePlacement {
   verticalFovDeg?: number;
   /** Position-only lock: the icon cannot be dragged, but rotation still applies. */
   locked?: boolean;
+}
+
+export interface CanvasHandleSizes {
+  r: number;
+  hitR: number;
+  midR: number;
+  stroke: number;
+}
+
+export interface RoomCanvasOverlayContext {
+  toCanvas: (p: Point) => { x: number; y: number };
+  fromCanvas: (x: number, y: number) => Point;
+  toCanvasCoord: (p: Point) => { x: number; y: number };
+  fromCanvasCoord: (x: number, y: number) => Point;
+  toWorldFromEvent: (e: { clientX: number; clientY: number }) => Point | null;
+  svgRef: React.RefObject<SVGSVGElement>;
+  rangeMm: number;
+  roomShellPoints: Point[];
+  devicePlacement: DevicePlacement | undefined;
+  fieldOfViewDeg: number;
+  coverage: CanvasCoverage;
+  pxToSvg: number;
+  handle: CanvasHandleSizes;
+  onCanvasPointerMove: (e: React.PointerEvent<SVGElement>) => void;
+  onCanvasPointerRelease: (e: React.PointerEvent<SVGElement>) => void;
+  /** Device element to render (when deviceInteractive is false) - render at desired z-order */
+  deviceElement?: React.ReactNode;
 }
 
 interface RoomCanvasProps {
@@ -48,6 +78,11 @@ interface RoomCanvasProps {
   onDeviceClick?: () => void;
   fieldOfViewDeg?: number;
   maxRangeMeters?: number;
+  /** When set, coverage FOV and range come from the profile instead of fieldOfViewDeg / maxRangeMeters. */
+  profile?: DeviceProfile | null;
+  /** Live config merged with the sensor draft; distances in cm. */
+  sensorConfig?: SensorCoverageConfig;
+  onContainerSizeChange?: (size: { width: number; height: number }) => void;
   deviceIconUrl?: string;
   clipRadarToWalls?: boolean;
   showRadar?: boolean;
@@ -73,20 +108,7 @@ interface RoomCanvasProps {
   onSegmentDragStart?: (index: number, start: Point) => void;
   onEndpointDragStart?: (segment: number, endpoint: 'start' | 'end', start: Point) => void;
   onSegmentInsert?: (segmentIndex: number, point: Point) => void;
-  renderOverlay?: (ctx: {
-    toCanvas: (p: Point) => { x: number; y: number };
-    fromCanvas: (x: number, y: number) => Point;
-    toWorldFromEvent: (e: { clientX: number; clientY: number }) => Point | null;
-    svgRef: React.RefObject<SVGSVGElement>;
-    rangeMm: number;
-    roomShellPoints: Point[];
-    devicePlacement: DevicePlacement | undefined;
-    fieldOfViewDeg: number;
-    onCanvasPointerMove: (e: React.PointerEvent<SVGElement>) => void;
-    onCanvasPointerRelease: (e: React.PointerEvent<SVGElement>) => void;
-    /** Device element to render (when deviceInteractive is false) - render at desired z-order */
-    deviceElement?: React.ReactNode;
-  }) => React.ReactNode;
+  renderOverlay?: (ctx: RoomCanvasOverlayContext) => React.ReactNode;
   lockShell?: boolean;
   /**
    * Individually locked wall segments. A locked wall is removed from hit-testing
@@ -159,7 +181,7 @@ const getClosestWallIntersectionDistance = (
   for (let i = 0; i < walls.length; i++) {
     const wallStart = walls[i];
     const wallEnd = walls[(i + 1) % walls.length];
-    const intersection = lineIntersection(origin, rayEnd, wallStart, wallEnd);
+    const intersection = segmentIntersection(origin, rayEnd, wallStart, wallEnd);
     if (!intersection) continue;
     const dist = Math.hypot(intersection.x - origin.x, intersection.y - origin.y);
     if (dist > minClipDistance && dist < minDist) {
@@ -510,30 +532,6 @@ const constrainPointToPolygon = (point: Point, polygon: Point[]): Point => {
   return closest;
 };
 
-// Line segment intersection helper
-const lineIntersection = (
-  p1: Point, p2: Point, p3: Point, p4: Point
-): Point | null => {
-  const x1 = p1.x, y1 = p1.y;
-  const x2 = p2.x, y2 = p2.y;
-  const x3 = p3.x, y3 = p3.y;
-  const x4 = p4.x, y4 = p4.y;
-
-  const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-  if (Math.abs(denom) < 1e-10) return null; // Parallel or coincident
-
-  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
-
-  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
-    return {
-      x: x1 + t * (x2 - x1),
-      y: y1 + t * (y2 - y1),
-    };
-  }
-  return null;
-};
-
 /**
  * Padlock drawn on a locked object. Purely an indicator: it never takes a
  * click, so it can never swallow the click that selects the object. Unlocking
@@ -576,6 +574,9 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
   onDeviceClick,
   fieldOfViewDeg = 120,
   maxRangeMeters = 6,
+  profile,
+  sensorConfig,
+  onContainerSizeChange,
   deviceIconUrl,
   clipRadarToWalls = false,
   showRadar = true,
@@ -700,14 +701,44 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
   const effectiveMaxRange = Number.isFinite(maxRangeMeters) ? maxRangeMeters : 6;
   const effectiveSnap = Number.isFinite(snapGridMm) && snapGridMm > 0 ? snapGridMm : 0;
   const effectiveZoom = Math.min(5, Math.max(0.1, Number.isFinite(zoom) ? zoom : 1));
-  const clampHandleSize = (baseSize: number, minSize: number, maxSize: number) =>
-    Math.max(minSize, Math.min(maxSize, baseSize / effectiveZoom));
-  const vertexHandleRadius = clampHandleSize(11, 4.5, 11);
-  const endpointHandleSize = clampHandleSize(18, 8, 18);
-  const endpointHandleRadius = clampHandleSize(2, 1, 2);
-  const handleStrokeWidth = clampHandleSize(2, 1, 2);
+  const coverage = resolveCanvasCoverage(profile, safePlacement, sensorConfig, {
+    fovDeg: effectiveFov,
+    maxRangeMeters: effectiveMaxRange,
+  });
+
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
+  const onContainerSizeChangeRef = useRef(onContainerSizeChange);
+  onContainerSizeChangeRef.current = onContainerSizeChange;
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width <= 0 || height <= 0) return;
+      setContainerSize((prev) => (prev && prev.width === width && prev.height === height ? prev : { width, height }));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (containerSize) onContainerSizeChangeRef.current?.(containerSize);
+  }, [containerSize]);
+
+  // The shorter axis spans CANVAS_SIZE / zoom, so zoom keeps its meaning while the wide axis is used too.
+  const aspect = containerSize ? containerSize.width / containerSize.height : 1;
   const viewSize = CANVAS_SIZE / effectiveZoom;
-  const viewMin = (CANVAS_SIZE - viewSize) / 2;
+  const viewW = viewSize * Math.max(1, aspect);
+  const viewH = viewSize * Math.max(1, 1 / aspect);
+  const viewMinX = HALF - viewW / 2;
+  const viewMinY = HALF - viewH / 2;
+  const pxToSvg = containerSize ? viewW / containerSize.width : 1 / effectiveZoom;
+  const coarsePointer = useMediaQuery('(pointer: coarse)');
+  const handle: CanvasHandleSizes = {
+    r: (coarsePointer ? 9 : 6) * pxToSvg,
+    hitR: (coarsePointer ? 22 : 12) * pxToSvg,
+    midR: (coarsePointer ? 7 : 4.5) * pxToSvg,
+    stroke: 2 * pxToSvg,
+  };
   const roomSignedArea = getSignedPolygonArea(safePoints);
   const inwardNormalSign = roomSignedArea >= 0 ? 1 : -1;
 
@@ -724,17 +755,17 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
     y: fromCanvas(cy, effectiveRangeMm) + offset.y,
   });
 
-  const getHeightCoveragePathData = (deviceWorld: Point, rotationRad: number): string | null => {
+  const getHeightCoveragePathData = (deviceWorld: Point): string | null => {
     if (!heightCoverage?.enabled) return null;
 
     const polygon = buildHeightCoveragePolygon({
       deviceWorld,
-      rotationRad,
-      mountRotationDeg: safePlacement.rotationDeg ?? 0,
+      rotationRad: degToRad(coverage.rotationDeg + 90),
+      mountRotationDeg: coverage.rotationDeg,
       pitchDeg: heightCoverage.pitchDeg,
       horizontalFovDeg: heightCoverage.horizontalFovDeg,
       maxRangeCapMm: (Number.isFinite(heightCoverage.maxRangeMeters) ? Number(heightCoverage.maxRangeMeters) : effectiveMaxRange) * 1000,
-      clipToWalls: safePoints.length >= 3,
+      clipToWalls: clipRadarToWalls && safePoints.length >= 3,
       wallPoints: safePoints,
       heightMm: heightCoverage.heightMm,
       verticalFovDeg: heightCoverage.verticalFovDeg,
@@ -811,7 +842,7 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
     return true;
   };
 
-  const handleDragStart = (idx: number) => (e: React.PointerEvent<SVGCircleElement>) => {
+  const handleDragStart = (idx: number) => (e: React.PointerEvent<SVGElement>) => {
     if (e.button !== 0) return;
     e.stopPropagation();
     if (e.cancelable) e.preventDefault();
@@ -1229,12 +1260,49 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
     };
   });
 
+  const renderCoverageLayer = (interactive: boolean) => {
+    const markerCursor = devicePositionLocked ? (onDeviceClick ? 'pointer' : 'not-allowed') : 'grab';
+    const { x: px, y: py } = toCanvasCoord(safePlacement);
+    return (
+      <CoverageLayer
+        interactive={interactive}
+        toCanvasCoord={toCanvasCoord}
+        device={{ x: safePlacement.x, y: safePlacement.y }}
+        coverage={coverage}
+        roomPoints={safePoints}
+        clipToWalls={clipRadarToWalls}
+        showRadar={showRadar}
+        heightCoveragePath={getHeightCoveragePathData({ x: safePlacement.x, y: safePlacement.y })}
+        pxToSvg={pxToSvg}
+        marker={{
+          show: showDevice,
+          style: deviceMarkerStyle,
+          size: markerSize,
+          opacity: markerOpacity,
+          iconUrl: deviceIconUrl,
+          iconRotationDeg: safePlacement.mountType === 'ceiling' ? (safePlacement.rotationDeg ?? 0) : 0,
+          cursor: markerCursor,
+        }}
+        onMarkerPointerDown={handleDevicePointerDown}
+        onMarkerPointerUp={handleDevicePointerUp}
+      >
+        {interactive && showDevice && devicePositionLocked && showLockIndicators && (
+          <LockBadge
+            x={px + markerSize / 2}
+            y={py - markerSize / 2}
+            label="Device position is locked - rotation is still adjustable"
+          />
+        )}
+      </CoverageLayer>
+    );
+  };
+
   return (
     <div className="w-full h-full">
       <svg
         ref={svgRef}
         width="100%"
-        viewBox={`${viewMin} ${viewMin} ${viewSize} ${viewSize}`}
+        viewBox={`${viewMinX} ${viewMinY} ${viewW} ${viewH}`}
         height={height}
         className="bg-slate-900"
         style={{ touchAction: 'none' }}
@@ -1278,7 +1346,7 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
         <defs>
           <FloorMaterialDefs />
         </defs>
-        <rect x={0} y={0} width={CANVAS_SIZE} height={CANVAS_SIZE} fill={canvasColors.background} />
+        <rect x={viewMinX} y={viewMinY} width={viewW} height={viewH} fill={canvasColors.background} />
         {(() => {
           const lines = [];
           // Adjust grid span based on zoom level to ensure grid lines are visible when zooming out
@@ -1860,398 +1928,26 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
           );
         })}
 
-        {/* Build device element for non-interactive mode (Zone Editor) - passed to renderOverlay for z-order control */}
         {renderOverlay?.({
           toCanvas: toCanvasCoord,
           fromCanvas: fromCanvasCoord,
+          toCanvasCoord,
+          fromCanvasCoord,
           toWorldFromEvent,
           svgRef,
           rangeMm: effectiveRangeMm,
           roomShellPoints: safePoints,
           devicePlacement: safePlacement,
-          fieldOfViewDeg: effectiveFov,
+          fieldOfViewDeg: coverage.fovDeg,
+          coverage,
+          pxToSvg,
+          handle,
           onCanvasPointerMove: handlePointerMove,
           onCanvasPointerRelease: handlePointerUp,
-          deviceElement: (!deviceInteractive && (showDevice || showRadar) && devicePlacement && safePlacement) ? (() => {
-            const { x: px, y: py } = toCanvasCoord(safePlacement);
-            // Add 90 degrees so that 0 degrees points down (Y+) instead of right (X+)
-            const rotationRad = (((safePlacement.rotationDeg ?? 0) + 90) * Math.PI) / 180;
-            const halfFov = (effectiveFov * Math.PI) / 360;
-            const range = effectiveMaxRange * 1000;
-
-            // Calculate radar coverage points
-            const deviceWorld = { x: safePlacement.x, y: safePlacement.y };
-            const a1 = rotationRad - halfFov;
-            const a2 = rotationRad + halfFov;
-            const heightCoveragePath = getHeightCoveragePathData(deviceWorld, rotationRad);
-
-            // World coordinates for radar edges
-            const edge1World = {
-              x: deviceWorld.x + Math.cos(a1) * range,
-              y: deviceWorld.y + Math.sin(a1) * range,
-            };
-            const edge2World = {
-              x: deviceWorld.x + Math.cos(a2) * range,
-              y: deviceWorld.y + Math.sin(a2) * range,
-            };
-
-            // Build radar polygon with wall clipping
-            let radarPoints: Point[] = [deviceWorld];
-
-            if (clipRadarToWalls && safePoints.length >= 3) {
-              const minClipDistance = 10; // Minimum 10mm to avoid clipping at device position
-
-              // Clip radar edge 1 against walls
-              let clippedEdge1 = edge1World;
-              let minDist1 = Infinity;
-
-              for (let i = 0; i < safePoints.length; i++) {
-                const wallStart = safePoints[i];
-                const wallEnd = safePoints[(i + 1) % safePoints.length];
-                const intersection = lineIntersection(deviceWorld, edge1World, wallStart, wallEnd);
-
-                if (intersection) {
-                  const dist = Math.hypot(intersection.x - deviceWorld.x, intersection.y - deviceWorld.y);
-                  // Only clip if the intersection is beyond minimum distance from device
-                  if (dist > minClipDistance && dist < minDist1) {
-                    minDist1 = dist;
-                    clippedEdge1 = intersection;
-                  }
-                }
-              }
-
-              // Clip radar edge 2 against walls
-              let clippedEdge2 = edge2World;
-              let minDist2 = Infinity;
-
-              for (let i = 0; i < safePoints.length; i++) {
-                const wallStart = safePoints[i];
-                const wallEnd = safePoints[(i + 1) % safePoints.length];
-                const intersection = lineIntersection(deviceWorld, edge2World, wallStart, wallEnd);
-
-                if (intersection) {
-                  const dist = Math.hypot(intersection.x - deviceWorld.x, intersection.y - deviceWorld.y);
-                  // Only clip if the intersection is beyond minimum distance from device
-                  if (dist > minClipDistance && dist < minDist2) {
-                    minDist2 = dist;
-                    clippedEdge2 = intersection;
-                  }
-                }
-              }
-
-              // Sample points along the arc to check for wall intersections
-              const arcSteps = 32;
-              const angleStep = (effectiveFov * Math.PI / 180) / arcSteps;
-
-              for (let i = 0; i <= arcSteps; i++) {
-                const angle = a1 + i * angleStep;
-                const rayEnd = {
-                  x: deviceWorld.x + Math.cos(angle) * range,
-                  y: deviceWorld.y + Math.sin(angle) * range,
-                };
-
-                let clippedPoint = rayEnd;
-                let minDist = Infinity;
-
-                for (let j = 0; j < safePoints.length; j++) {
-                  const wallStart = safePoints[j];
-                  const wallEnd = safePoints[(j + 1) % safePoints.length];
-                  const intersection = lineIntersection(deviceWorld, rayEnd, wallStart, wallEnd);
-
-                  if (intersection) {
-                    const dist = Math.hypot(intersection.x - deviceWorld.x, intersection.y - deviceWorld.y);
-                    // Only clip if the intersection is beyond minimum distance from device
-                    if (dist > minClipDistance && dist < minDist) {
-                      minDist = dist;
-                      clippedPoint = intersection;
-                    }
-                  }
-                }
-
-                radarPoints.push(clippedPoint);
-              }
-            } else {
-              // No wall clipping - draw proper arc
-              const arcSteps = 32;
-              const angleStep = (effectiveFov * Math.PI / 180) / arcSteps;
-
-              for (let i = 0; i <= arcSteps; i++) {
-                const angle = a1 + i * angleStep;
-                const arcPoint = {
-                  x: deviceWorld.x + Math.cos(angle) * range,
-                  y: deviceWorld.y + Math.sin(angle) * range,
-                };
-                radarPoints.push(arcPoint);
-              }
-            }
-
-            // Convert to canvas coordinates
-            const radarPath = radarPoints.map(toCanvasCoord);
-            const pathData = radarPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z';
-
-            const iconSize = markerSize;
-            const iconRotationDeg = safePlacement.mountType === 'ceiling' ? (safePlacement.rotationDeg ?? 0) : 0;
-
-            return (
-              <g style={{ pointerEvents: 'none' }} {...canvasLayerProps('device')}>
-                {heightCoveragePath && (
-                  <path
-                    d={heightCoveragePath}
-                    fill="#22c55e22"
-                    stroke="#22c55e"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                )}
-                {/* Radar coverage overlay - visible but non-blocking with pointerEvents: 'none' */}
-                {showRadar && (
-                  <path
-                    d={pathData}
-                    fill="#22c55e22"
-                    stroke="#22c55e"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                )}
-
-                {/* Device marker is independent from coverage. */}
-                {showDevice && (deviceMarkerStyle === 'node' ? (
-                  <circle cx={px} cy={py} r={Math.max(4, iconSize / 3)} fill="#38bdf880" stroke="#e0f2fe" strokeWidth={1.5} opacity={markerOpacity} />
-                ) : deviceIconUrl ? (
-                  <g transform={`translate(${px}, ${py}) rotate(${iconRotationDeg})`} opacity={markerOpacity}>
-                    <image
-                      href={deviceIconUrl}
-                      x={-iconSize / 2}
-                      y={-iconSize / 2}
-                      width={iconSize}
-                      height={iconSize}
-                      style={{ cursor: 'default', pointerEvents: 'none' }}
-                    />
-                  </g>
-                ) : (
-                  <g opacity={markerOpacity}>
-                    {/* Fallback: circle with direction indicator */}
-                    <circle
-                      cx={px}
-                      cy={py}
-                      r={iconSize / 3}
-                      fill="#3b82f6"
-                      stroke="#1d4ed8"
-                      strokeWidth={2}
-                      style={{ cursor: 'default', pointerEvents: 'none' }}
-                    />
-                    <line
-                      x1={px}
-                      y1={py}
-                      x2={px + Math.cos(rotationRad) * iconSize / 2}
-                      y2={py + Math.sin(rotationRad) * iconSize / 2}
-                      stroke="#ffffff"
-                      strokeWidth={3}
-                      strokeLinecap="round"
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  </g>
-                ))}
-              </g>
-            );
-          })() : undefined,
+          deviceElement: !deviceInteractive && (showDevice || showRadar) && devicePlacement ? renderCoverageLayer(false) : undefined,
         })}
 
-        {/* Device rendering - when interactive (Room Builder), render AFTER overlay so device can be dragged */}
-        {deviceInteractive && (showDevice || showRadar) && devicePlacement && safePlacement && (
-          (() => {
-            const { x: px, y: py } = toCanvasCoord(safePlacement);
-            // Add 90 degrees so that 0 degrees points down (Y+) instead of right (X+)
-            const rotationRad = (((safePlacement.rotationDeg ?? 0) + 90) * Math.PI) / 180;
-            const halfFov = (effectiveFov * Math.PI) / 360;
-            const range = effectiveMaxRange * 1000;
-
-            // Calculate radar coverage points
-            const deviceWorld = { x: safePlacement.x, y: safePlacement.y };
-            const a1 = rotationRad - halfFov;
-            const a2 = rotationRad + halfFov;
-            const heightCoveragePath = getHeightCoveragePathData(deviceWorld, rotationRad);
-
-            // World coordinates for radar edges
-            const edge1World = {
-              x: deviceWorld.x + Math.cos(a1) * range,
-              y: deviceWorld.y + Math.sin(a1) * range,
-            };
-            const edge2World = {
-              x: deviceWorld.x + Math.cos(a2) * range,
-              y: deviceWorld.y + Math.sin(a2) * range,
-            };
-
-            // Build radar polygon with wall clipping
-            let radarPoints: Point[] = [deviceWorld];
-
-            if (clipRadarToWalls && safePoints.length >= 3) {
-              const minClipDistance = 10;
-
-              let clippedEdge1 = edge1World;
-              let minDist1 = Infinity;
-
-              for (let i = 0; i < safePoints.length; i++) {
-                const wallStart = safePoints[i];
-                const wallEnd = safePoints[(i + 1) % safePoints.length];
-                const intersection = lineIntersection(deviceWorld, edge1World, wallStart, wallEnd);
-
-                if (intersection) {
-                  const dist = Math.hypot(intersection.x - deviceWorld.x, intersection.y - deviceWorld.y);
-                  if (dist > minClipDistance && dist < minDist1) {
-                    minDist1 = dist;
-                    clippedEdge1 = intersection;
-                  }
-                }
-              }
-
-              let clippedEdge2 = edge2World;
-              let minDist2 = Infinity;
-
-              for (let i = 0; i < safePoints.length; i++) {
-                const wallStart = safePoints[i];
-                const wallEnd = safePoints[(i + 1) % safePoints.length];
-                const intersection = lineIntersection(deviceWorld, edge2World, wallStart, wallEnd);
-
-                if (intersection) {
-                  const dist = Math.hypot(intersection.x - deviceWorld.x, intersection.y - deviceWorld.y);
-                  if (dist > minClipDistance && dist < minDist2) {
-                    minDist2 = dist;
-                    clippedEdge2 = intersection;
-                  }
-                }
-              }
-
-              const arcSteps = 32;
-              const angleStep = (effectiveFov * Math.PI / 180) / arcSteps;
-
-              for (let i = 0; i <= arcSteps; i++) {
-                const angle = a1 + i * angleStep;
-                const rayEnd = {
-                  x: deviceWorld.x + Math.cos(angle) * range,
-                  y: deviceWorld.y + Math.sin(angle) * range,
-                };
-
-                let clippedPoint = rayEnd;
-                let minDist = Infinity;
-
-                for (let j = 0; j < safePoints.length; j++) {
-                  const wallStart = safePoints[j];
-                  const wallEnd = safePoints[(j + 1) % safePoints.length];
-                  const intersection = lineIntersection(deviceWorld, rayEnd, wallStart, wallEnd);
-
-                  if (intersection) {
-                    const dist = Math.hypot(intersection.x - deviceWorld.x, intersection.y - deviceWorld.y);
-                    if (dist > minClipDistance && dist < minDist) {
-                      minDist = dist;
-                      clippedPoint = intersection;
-                    }
-                  }
-                }
-
-                radarPoints.push(clippedPoint);
-              }
-            } else {
-              const arcSteps = 32;
-              for (let i = 0; i <= arcSteps; i++) {
-                const angle = a1 + (i / arcSteps) * (a2 - a1);
-                const arcPoint = {
-                  x: deviceWorld.x + Math.cos(angle) * range,
-                  y: deviceWorld.y + Math.sin(angle) * range,
-                };
-                radarPoints.push(arcPoint);
-              }
-            }
-
-            const radarPath = radarPoints.map(toCanvasCoord);
-            const pathData = radarPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z';
-
-            const iconSize = markerSize;
-            const iconRotationDeg = safePlacement.mountType === 'ceiling' ? (safePlacement.rotationDeg ?? 0) : 0;
-
-            return (
-              <g {...canvasLayerProps('device')}>
-                {heightCoveragePath && (
-                  <path
-                    d={heightCoveragePath}
-                    fill="#22c55e22"
-                    stroke="#22c55e"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                )}
-                {showRadar && (
-                  <path
-                    d={pathData}
-                    fill="#22c55e22"
-                    stroke="#22c55e"
-                    strokeWidth={1.5}
-                    vectorEffect="non-scaling-stroke"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                )}
-
-                {showDevice && <g opacity={markerOpacity} style={{ pointerEvents: 'none' }}>
-                {deviceMarkerStyle === 'node' ? (
-                  <circle cx={px} cy={py} r={Math.max(4, iconSize / 3)} fill="#38bdf880" stroke="#e0f2fe" strokeWidth={1.5} />
-                ) : deviceIconUrl ? (
-                  <g transform={`translate(${px}, ${py}) rotate(${iconRotationDeg})`}>
-                    <image
-                      href={deviceIconUrl}
-                      x={-iconSize / 2}
-                      y={-iconSize / 2}
-                      width={iconSize}
-                      height={iconSize}
-                      style={{
-                        cursor: devicePositionLocked ? (onDeviceClick ? 'pointer' : 'not-allowed') : 'grab',
-                        pointerEvents: 'none',
-                      }}
-                    />
-                  </g>
-                ) : (
-                  <>
-                    <circle
-                      cx={px}
-                      cy={py}
-                      r={iconSize / 3}
-                      fill="#3b82f6"
-                      stroke="#1d4ed8"
-                      strokeWidth={2}
-                      style={{
-                        cursor: devicePositionLocked ? (onDeviceClick ? 'pointer' : 'not-allowed') : 'grab',
-                      }}
-                    />
-                    <line
-                      x1={px}
-                      y1={py}
-                      x2={px + Math.cos(rotationRad) * iconSize / 2}
-                      y2={py + Math.sin(rotationRad) * iconSize / 2}
-                      stroke="#ffffff"
-                      strokeWidth={3}
-                      strokeLinecap="round"
-                      // Drawn over the icon, so it must not steal its clicks.
-                      style={{ pointerEvents: 'none' }}
-                    />
-                  </>
-                )}
-                </g>}
-                {showDevice && (
-                  <circle cx={px} cy={py} r={Math.max(22, iconSize / 2)} fill="transparent" onPointerDown={handleDevicePointerDown} onPointerUp={handleDevicePointerUp} style={{ cursor: devicePositionLocked ? (onDeviceClick ? 'pointer' : 'not-allowed') : 'grab' }} aria-label="Device marker" />
-                )}
-                {showDevice && devicePositionLocked && showLockIndicators && (
-                  <LockBadge
-                    x={px + iconSize / 2}
-                    y={py - iconSize / 2}
-                    label="Device position is locked - rotation is still adjustable"
-                  />
-                )}
-              </g>
-            );
-          })()
-        )}
+        {deviceInteractive && (showDevice || showRadar) && devicePlacement && renderCoverageLayer(true)}
 
         {/* Editing handles - always the last layer of the canvas.
             SVG has no z-index, so a later sibling both paints over an earlier
@@ -2273,16 +1969,16 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
               if (isVertexPinned(idx)) return null;
               const { x: cx, y: cy } = toCanvasCoord(p);
               return (
-                <g key={`pt-${idx}`}>
+                <g key={`pt-${idx}`} onPointerDown={handleDragStart(idx)}>
+                  <circle cx={cx} cy={cy} r={handle.hitR} fill="transparent" />
                   <circle
                     cx={cx}
                     cy={cy}
-                    r={vertexHandleRadius}
+                    r={handle.r}
                     fill="#0ea5e9"
                     stroke="#e0f2fe"
-                    strokeWidth={handleStrokeWidth}
+                    strokeWidth={2}
                     vectorEffect="non-scaling-stroke"
-                    onPointerDown={handleDragStart(idx)}
                   />
                 </g>
               );
@@ -2298,56 +1994,39 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
               const p = safePoints[selectedSegment];
               const next = safePoints[(selectedSegment + 1) % safePoints.length];
               if (!p || !next) return null;
-              const { x: x1, y: y1 } = toCanvasCoord(p);
-              const { x: x2, y: y2 } = toCanvasCoord(next);
-              return (
-                <>
-                  <rect
-                    x={x1 - endpointHandleSize / 2}
-                    y={y1 - endpointHandleSize / 2}
-                    width={endpointHandleSize}
-                    height={endpointHandleSize}
-                    fill="#0ea5e9"
-                    stroke="#e0f2fe"
-                    strokeWidth={handleStrokeWidth}
-                    rx={endpointHandleRadius}
-                    vectorEffect="non-scaling-stroke"
+              const endpointSize = 2 * handle.r;
+              return ([['start', p], ['end', next]] as const).map(([endpoint, point]) => {
+                const { x, y } = toCanvasCoord(point);
+                return (
+                  <g
+                    key={`endpoint-${endpoint}`}
                     onPointerDown={(e) => {
                       e.stopPropagation();
                       if (e.cancelable) e.preventDefault();
                       capturePointer(e);
                       if (onEndpointDragStart) {
-                        const world = toWorldFromEvent(e as any) ?? { x: p.x, y: p.y };
-                        onEndpointDragStart(selectedSegment, 'start', world);
+                        const world = toWorldFromEvent(e as any) ?? { x: point.x, y: point.y };
+                        onEndpointDragStart(selectedSegment, endpoint, world);
                         suppressClickRef.current = true;
                         onDragStateChange?.(true);
                       }
                     }}
-                  />
-                  <rect
-                    x={x2 - endpointHandleSize / 2}
-                    y={y2 - endpointHandleSize / 2}
-                    width={endpointHandleSize}
-                    height={endpointHandleSize}
-                    fill="#0ea5e9"
-                    stroke="#e0f2fe"
-                    strokeWidth={handleStrokeWidth}
-                    rx={endpointHandleRadius}
-                    vectorEffect="non-scaling-stroke"
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      if (e.cancelable) e.preventDefault();
-                      capturePointer(e);
-                      if (onEndpointDragStart) {
-                        const world = toWorldFromEvent(e as any) ?? { x: next.x, y: next.y };
-                        onEndpointDragStart(selectedSegment, 'end', world);
-                        suppressClickRef.current = true;
-                        onDragStateChange?.(true);
-                      }
-                    }}
-                  />
-                </>
-              );
+                  >
+                    <circle cx={x} cy={y} r={handle.hitR} fill="transparent" />
+                    <rect
+                      x={x - endpointSize / 2}
+                      y={y - endpointSize / 2}
+                      width={endpointSize}
+                      height={endpointSize}
+                      fill="#0ea5e9"
+                      stroke="#e0f2fe"
+                      strokeWidth={2}
+                      rx={2 * pxToSvg}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </g>
+                );
+              });
             })()}
 
           {/* Furniture resize and rotation handles (only for a selected,

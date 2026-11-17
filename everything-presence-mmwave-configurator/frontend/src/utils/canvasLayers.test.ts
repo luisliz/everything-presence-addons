@@ -43,7 +43,8 @@ test('RoomCanvas emits its layers in paint order, handles last', () => {
 
 test('device coverage is independent from marker appearance and the marker keeps a hit target', () => {
   const source = readFileSync(new URL('../components/RoomCanvas.tsx', import.meta.url), 'utf8');
+  const layer = readFileSync(new URL('../components/canvas/CoverageLayer.tsx', import.meta.url), 'utf8');
   assert.match(source, /\(showDevice \|\| showRadar\)/, 'coverage should render while the marker is hidden');
-  assert.match(source, /r=\{Math\.max\(22, iconSize \/ 2\)\}/, 'marker should retain a stable hit target');
-  assert.match(source, /<g opacity=\{markerOpacity\}/, 'opacity should be scoped to marker visuals');
+  assert.match(layer, /r=\{Math\.max\(22, marker\.size \/ 2\)\}/, 'marker should retain a stable hit target');
+  assert.match(layer, /<g opacity=\{marker\.opacity\}/, 'opacity should be scoped to marker visuals');
 });

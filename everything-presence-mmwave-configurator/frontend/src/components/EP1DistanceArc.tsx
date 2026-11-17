@@ -1,4 +1,5 @@
-import React from 'react';
+import type React from 'react';
+import { conePolygon, coverageHeadingRad } from '../utils/coverage';
 
 interface Point {
   x: number;
@@ -8,6 +9,8 @@ interface Point {
 interface EP1DistanceArcProps {
   distance: number | null | undefined; // Distance in meters
   devicePlacement: { x: number; y: number; rotationDeg?: number };
+  /** Resolved coverage rotation (placement + installation angle); defaults to devicePlacement.rotationDeg. */
+  rotationDeg?: number;
   toCanvas: (point: { x: number; y: number }) => { x: number; y: number };
   rangeMm: number;
   fieldOfViewDeg?: number;
@@ -21,33 +24,10 @@ interface EP1DistanceArcProps {
   clipToWalls?: boolean;
 }
 
-// Line-segment intersection helper (same as RoomCanvas)
-const lineIntersection = (
-  p1: Point, p2: Point, p3: Point, p4: Point
-): Point | null => {
-  const x1 = p1.x, y1 = p1.y;
-  const x2 = p2.x, y2 = p2.y;
-  const x3 = p3.x, y3 = p3.y;
-  const x4 = p4.x, y4 = p4.y;
-
-  const denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-  if (Math.abs(denom) < 1e-10) return null; // Parallel or coincident
-
-  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
-
-  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
-    return {
-      x: x1 + t * (x2 - x1),
-      y: y1 + t * (y2 - y1),
-    };
-  }
-  return null;
-};
-
 export const EP1DistanceArc: React.FC<EP1DistanceArcProps> = ({
   distance,
   devicePlacement,
+  rotationDeg,
   toCanvas,
   rangeMm,
   fieldOfViewDeg = 120,
@@ -68,66 +48,14 @@ export const EP1DistanceArc: React.FC<EP1DistanceArcProps> = ({
   // Convert distance from meters to millimeters
   const distanceMm = distance * 1000;
 
-  // Device rotation: Add 90 degrees so that 0 degrees points down (Y+) instead of right (X+)
-  // This matches the global orientation used by the radar overlay
-  const rotationRad = (((devicePlacement.rotationDeg ?? 0) + 90) * Math.PI) / 180;
-  const halfFov = (fieldOfViewDeg * Math.PI) / 360;
-
-  // Calculate arc angles in world coordinates
-  const a1 = rotationRad - halfFov;
-  const a2 = rotationRad + halfFov;
-
-  // Build arc points in WORLD coordinates (just like the radar overlay does)
+  const coverageRotationDeg = rotationDeg ?? devicePlacement.rotationDeg ?? 0;
+  const rotationRad = coverageHeadingRad(coverageRotationDeg);
   const deviceWorld = { x: devicePlacement.x, y: devicePlacement.y };
-
-  const arcPoints: Point[] = [deviceWorld]; // Start at device
-
-  // Sample points along the arc
-  const arcSteps = 32;
-  const angleStep = ((fieldOfViewDeg * Math.PI) / 180) / arcSteps;
-
-  if (clipToWalls && roomShellPoints.length >= 3) {
-    // Wall clipping mode - same as green radar overlay
-    const minClipDistance = 10; // Minimum 10mm to avoid clipping at device position
-
-    for (let i = 0; i <= arcSteps; i++) {
-      const angle = a1 + i * angleStep;
-      const rayEnd: Point = {
-        x: deviceWorld.x + Math.cos(angle) * distanceMm,
-        y: deviceWorld.y + Math.sin(angle) * distanceMm,
-      };
-
-      let clippedPoint = rayEnd;
-      let minDist = Infinity;
-
-      for (let j = 0; j < roomShellPoints.length; j++) {
-        const wallStart = roomShellPoints[j];
-        const wallEnd = roomShellPoints[(j + 1) % roomShellPoints.length];
-        const intersection = lineIntersection(deviceWorld, rayEnd, wallStart, wallEnd);
-
-        if (intersection) {
-          const dist = Math.hypot(intersection.x - deviceWorld.x, intersection.y - deviceWorld.y);
-          // Only clip if the intersection is beyond minimum distance from device
-          if (dist > minClipDistance && dist < minDist) {
-            minDist = dist;
-            clippedPoint = intersection;
-          }
-        }
-      }
-
-      arcPoints.push(clippedPoint);
-    }
-  } else {
-    // No wall clipping - draw proper arc
-    for (let i = 0; i <= arcSteps; i++) {
-      const angle = a1 + i * angleStep;
-      const arcPoint: Point = {
-        x: deviceWorld.x + Math.cos(angle) * distanceMm,
-        y: deviceWorld.y + Math.sin(angle) * distanceMm,
-      };
-      arcPoints.push(arcPoint);
-    }
-  }
+  const arcPoints = conePolygon(
+    deviceWorld,
+    { fovDeg: fieldOfViewDeg, rangeMm: distanceMm, rotationDeg: coverageRotationDeg },
+    { clipTo: clipToWalls ? roomShellPoints : undefined },
+  );
 
   // Convert ALL points to canvas coordinates at once
   const arcPath = arcPoints.map(toCanvas);
