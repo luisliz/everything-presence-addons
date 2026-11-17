@@ -21,7 +21,7 @@ import {
   shortModelLabel,
 } from '../utils/roomNav';
 import { roomSupportsZoneEditing } from '../utils/zoneCapabilities';
-import { RoomBuilderPage } from './RoomBuilderPage';
+import { BuildEntry } from './room/BuildEntry';
 import { LIVE_RANGE_MM, LiveMode } from './room/LiveMode';
 import { useStateSince } from './room/presence';
 import { RoomHeader } from './room/RoomHeader';
@@ -34,8 +34,8 @@ import {
 } from './room/types';
 import { SHORTCUTS, useRoomKeys } from './room/useRoomKeys';
 import { sensorConfigFrom, useSensorDraft } from './room/useSensorDraft';
+import { ZonesEntry } from './room/ZonesEntry';
 import { clampZoom, ZOOM_STEP } from './room/ZoomCluster';
-import { ZoneEditorPage } from './ZoneEditorPage';
 
 const OFFLINE_AFTER_MS = 10000;
 const DEFAULT_VIEWPORT: Viewport = { zoom: 1, panOffsetMm: { x: 0, y: 0 } };
@@ -375,17 +375,21 @@ export const RoomScreen = ({
           onShowShortcuts={() => setShortcutsOpen(true)}
         />
       )}
-      {mode !== 'live' && (
-        <div className="relative min-h-0 flex-1">
-          {mode === 'zones' ? (
-            <ZoneEditorPage
-              {...legacy}
-              onWizardZonesReady={onWizardZonesReady}
-            />
-          ) : (
-            <RoomBuilderPage {...legacy} onWizardProgress={onWizardProgress} />
-          )}
-        </div>
+      {mode === 'zones' && (
+        <ZonesEntry
+          frame={frame}
+          legacy={legacy}
+          onWizardZonesReady={onWizardZonesReady}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+        />
+      )}
+      {mode === 'build' && (
+        <BuildEntry
+          frame={frame}
+          legacy={legacy}
+          onWizardProgress={onWizardProgress}
+          onShowShortcuts={() => setShortcutsOpen(true)}
+        />
       )}
 
       {room.deviceId && (
