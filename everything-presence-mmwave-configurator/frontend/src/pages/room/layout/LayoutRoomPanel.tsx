@@ -161,7 +161,7 @@ export const LayoutRoomPanel = ({
           <Field
             label="Snap"
             layout="row"
-            help="Rounds placed and moved points to this grid. Alt bypasses it while drawing."
+            help="Rounds placed and moved points to this grid. Hold Alt to draw or drag corners off the grid."
           >
             <Segmented
               size="sm"

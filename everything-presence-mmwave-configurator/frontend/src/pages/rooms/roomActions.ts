@@ -69,15 +69,9 @@ const newRoomId = (): string =>
 
 export class ImportError extends Error {}
 
-/**
- * Picks a single-room export or a "Backup all" file and creates each room under a new id.
- * Resolves with the number of rooms created, or null when the file picker was cancelled.
- */
-export const importRoomsFromFile = async (): Promise<number | null> => {
-  const data = (await pickJsonFile()) as
-    | (RoomConfig & { rooms?: RoomConfig[] })
-    | null;
-  if (data === null) return null;
+/** Creates each room of a single-room export or a "Backup all" file under a new id; resolves with the number created. */
+export const importRoomsFrom = async (file: unknown): Promise<number> => {
+  const data = file as RoomConfig & { rooms?: RoomConfig[] };
   const isBackup = Array.isArray(data.rooms);
   const incoming: RoomConfig[] = isBackup ? (data.rooms ?? []) : [data];
   if (incoming.some((room) => !room.name || !Array.isArray(room.zones)))
@@ -239,18 +233,28 @@ export function useRoomActions() {
         }
         backupAllRooms(rooms);
       },
-      importRooms: () =>
-        run(
+      importRooms: async () => {
+        let file: unknown;
+        try {
+          file = await pickJsonFile();
+        } catch (err) {
+          toast.show(messageOf(err, 'Could not read the file'), {
+            tone: 'danger',
+          });
+          return false;
+        }
+        if (file === null) return true;
+        return run(
           '*',
           'import',
           async () => {
-            const count = await importRoomsFromFile();
-            if (count === null) return null;
+            const count = await importRoomsFrom(file);
             await refresh();
             return `Imported ${count} room${count > 1 ? 's' : ''}`;
           },
           'Failed to import rooms',
-        ),
+        );
+      },
     }),
     [
       busy,

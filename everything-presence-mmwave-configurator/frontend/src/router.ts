@@ -129,56 +129,131 @@ interface LeaveGuardOptions {
   onDiscard?: () => void;
 }
 
+export type LeaveGuardEntry = { current: LeaveGuardOptions };
+
 export interface PendingLeave {
   hash: string;
   replace: boolean;
   guard: LeaveGuardOptions;
+  entry: LeaveGuardEntry;
+  /** Guards the user already answered with Save or Discard for this move. */
+  resolved: ReadonlySet<LeaveGuardEntry>;
+  /** History steps the browser took for this move; replayed with `history.go` once every guard is resolved. */
+  delta?: number;
+  /** Set when the guarded move is an in-app action instead of a hash change. */
+  action?: () => void;
   saving: boolean;
 }
 
 const currentHash = () =>
   typeof window === 'undefined' ? '' : window.location.hash;
 
+const entryIndex = (): number | undefined => {
+  const idx = (window.history.state as { idx?: unknown } | null)?.idx;
+  return typeof idx === 'number' ? idx : undefined;
+};
+
 let accepted = currentHash();
+let index = 0;
+let replaying = false;
 let pending: PendingLeave | null = null;
 const listeners = new Set<() => void>();
-const guards = new Set<{ current: LeaveGuardOptions }>();
+const guards = new Set<LeaveGuardEntry>();
 
 const emit = () => {
   for (const listener of listeners) listener();
 };
 
-const activeGuard = () => guards.values().next().value?.current;
+export const nextGuard = (
+  entries: Iterable<LeaveGuardEntry>,
+  resolved: ReadonlySet<LeaveGuardEntry>,
+): LeaveGuardEntry | undefined => {
+  for (const entry of entries) if (!resolved.has(entry)) return entry;
+  return undefined;
+};
+
+const stamp = () =>
+  window.history.replaceState({ ...window.history.state, idx: index }, '');
 
 const commit = (hash: string, replace: boolean) => {
   accepted = hash;
   pending = null;
-  window.history[replace ? 'replaceState' : 'pushState'](null, '', hash);
+  if (!replace) index += 1;
+  window.history[replace ? 'replaceState' : 'pushState'](
+    { idx: index },
+    '',
+    hash,
+  );
   emit();
 };
 
-const go = (hash: string, replace: boolean, force = false) => {
-  if (hash === accepted) return;
-  const guard = force ? undefined : activeGuard();
-  if (guard) {
-    pending = { hash, replace, guard, saving: false };
+const ask = (
+  target: Omit<PendingLeave, 'guard' | 'entry' | 'saving'>,
+): boolean => {
+  const entry = nextGuard(guards, target.resolved);
+  if (!entry) return false;
+  pending = { ...target, guard: entry.current, entry, saving: false };
+  emit();
+  return true;
+};
+
+const finish = (target: PendingLeave) => {
+  if (ask(target)) return;
+  if (target.action) {
+    pending = null;
     emit();
+    target.action();
     return;
   }
+  if (target.delta === undefined) {
+    commit(target.hash, target.replace);
+    return;
+  }
+  pending = null;
+  replaying = true;
+  window.history.go(target.delta);
+  emit();
+};
+
+const go = (hash: string, replace: boolean) => {
+  if (hash === accepted) return;
+  if (ask({ hash, replace, resolved: new Set() })) return;
   commit(hash, replace);
+};
+
+const accept = (hash: string, idx: number | undefined) => {
+  accepted = hash;
+  pending = null;
+  if (idx !== undefined) index = idx;
+  else {
+    index += 1;
+    stamp();
+  }
 };
 
 const onHashChange = () => {
   const next = currentHash();
-  if (next === accepted) return;
-  const guard = activeGuard();
-  if (guard) {
-    window.history.replaceState(null, '', accepted);
-    pending = { hash: next, replace: false, guard, saving: false };
-  } else {
-    accepted = next;
+  const idx = entryIndex();
+  if (next === accepted) {
+    if (idx !== undefined) index = idx;
+    return;
   }
-  emit();
+  if (replaying) {
+    replaying = false;
+    accept(next, idx);
+    emit();
+    return;
+  }
+  // A typed URL or a stray `location.hash` write lands on a fresh entry without an index.
+  const replace = idx === index;
+  const delta = idx === undefined || replace ? undefined : idx - index;
+  if (!ask({ hash: next, replace, resolved: new Set(), delta })) {
+    accept(next, idx);
+    emit();
+    return;
+  }
+  if (replace) window.history.replaceState({ idx: index }, '', accepted);
+  else window.history.go(-(delta ?? 1));
 };
 
 // In-app links go through `go`, so a guarded link leaves no history entry behind;
@@ -199,9 +274,12 @@ const onLinkClick = (event: MouseEvent) => {
   go(anchor.getAttribute('href') ?? '#/', false);
 };
 
-const subscribe = (listener: () => void) => {
+export const subscribe = (listener: () => void) => {
   if (listeners.size === 0) {
     accepted = currentHash();
+    const idx = entryIndex();
+    index = idx ?? 0;
+    if (idx === undefined) stamp();
     window.addEventListener('hashchange', onHashChange);
     document.addEventListener('click', onLinkClick);
   }
@@ -212,6 +290,12 @@ const subscribe = (listener: () => void) => {
     window.removeEventListener('hashchange', onHashChange);
     document.removeEventListener('click', onLinkClick);
   };
+};
+
+/** Runs `action` now, or after every dirty leave guard is saved or discarded. */
+export const runGuarded = (action: () => void): void => {
+  if (!ask({ hash: accepted, replace: true, resolved: new Set(), action }))
+    action();
 };
 
 export const navigate = (
@@ -227,10 +311,8 @@ export const leaveDecision = {
   discard(): void {
     const target = pending;
     if (!target) return;
-    pending = null;
     target.guard.onDiscard?.();
-    go(target.hash, target.replace, true);
-    emit();
+    finish({ ...target, resolved: new Set(target.resolved).add(target.entry) });
   },
   async save(): Promise<void> {
     const target = pending;
@@ -238,19 +320,25 @@ export const leaveDecision = {
     pending = { ...target, saving: true };
     emit();
     const saved = await target.guard.onSave();
-    pending = saved ? null : { ...target, saving: false };
-    if (saved) go(target.hash, target.replace, true);
-    emit();
+    if (pending?.entry !== target.entry) return;
+    if (saved)
+      finish({
+        ...target,
+        resolved: new Set(target.resolved).add(target.entry),
+      });
+    else {
+      pending = { ...target, saving: false };
+      emit();
+    }
   },
 };
 
+export const currentLeave = (): PendingLeave | null => pending;
+export const acceptedHash = (): string => accepted;
+
 /** The hash the app currently shows; changes the browser makes while a leave guard is pending are held back. */
 export function useHash(): string {
-  return React.useSyncExternalStore(
-    subscribe,
-    () => accepted,
-    () => '',
-  );
+  return React.useSyncExternalStore(subscribe, acceptedHash, () => '');
 }
 
 export function useRoute(): [Route, typeof navigate] {
@@ -260,12 +348,15 @@ export function useRoute(): [Route, typeof navigate] {
 }
 
 export function usePendingLeave(): PendingLeave | null {
-  return React.useSyncExternalStore(
-    subscribe,
-    () => pending,
-    () => null,
-  );
+  return React.useSyncExternalStore(subscribe, currentLeave, () => null);
 }
+
+export const addLeaveGuard = (entry: LeaveGuardEntry): (() => void) => {
+  guards.add(entry);
+  return () => {
+    guards.delete(entry);
+  };
+};
 
 /** While `dirty`, route changes (links, back/forward, typed URLs) ask before leaving; `onSave` enables "Save and leave". */
 export function useLeaveGuard(
@@ -275,12 +366,5 @@ export function useLeaveGuard(
 ): void {
   const ref = React.useRef<LeaveGuardOptions>({ message, ...options });
   ref.current = { message, ...options };
-  React.useEffect(() => {
-    if (!dirty) return;
-    const entry = ref;
-    guards.add(entry);
-    return () => {
-      guards.delete(entry);
-    };
-  }, [dirty]);
+  React.useEffect(() => (dirty ? addLeaveGuard(ref) : undefined), [dirty]);
 }

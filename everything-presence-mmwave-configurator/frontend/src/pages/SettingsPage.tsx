@@ -288,10 +288,10 @@ const BackupsSection = () => {
     );
 
   const importBackups = async () => {
-    setImporting(true);
     try {
       const payload = await pickJsonFile();
       if (payload === null) return;
+      setImporting(true);
       const result = await importZoneBackups(payload);
       await reload();
       toast.show(`Imported ${result.imported} backup(s).`, { tone: 'success' });

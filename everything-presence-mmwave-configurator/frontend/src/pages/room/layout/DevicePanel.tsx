@@ -9,6 +9,7 @@ import {
   Panel,
   Segmented,
   Toggle,
+  useToast,
 } from '../../../components/primitives';
 import { isDevicePositionLocked } from '../../../utils/lockState';
 import { getInstallationAngleSuggestion } from '../../../utils/rotationSuggestion';
@@ -32,6 +33,7 @@ export const DevicePanel = ({ frame, editor, units }: DevicePanelProps) => {
   const presetId = useId();
   const rotationId = useId();
   const { profile, sensor, draft } = frame;
+  const toast = useToast();
   const placement: DevicePlacement = editor.room.devicePlacement ?? {
     x: 0,
     y: 0,
@@ -115,13 +117,19 @@ export const DevicePanel = ({ frame, editor, units }: DevicePanelProps) => {
   const apply = async () => {
     if (suggestion === null) return;
     setApplying(true);
-    await draft.writeNow('installationAngle', suggestion);
+    const ok = await draft.writeNow('installationAngle', suggestion);
+    setApplying(false);
+    if (!ok) {
+      toast.show('Could not write the installation angle to the device', {
+        tone: 'danger',
+      });
+      return;
+    }
     window.dispatchEvent(
       new CustomEvent('ep:refresh-live-state', {
         detail: { deviceId: editor.room.deviceId },
       }),
     );
-    setApplying(false);
     setSuggestion(null);
   };
   const alreadySet = suggestion !== null && suggestion === deviceAngle;

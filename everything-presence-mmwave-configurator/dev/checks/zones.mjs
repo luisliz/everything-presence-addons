@@ -142,6 +142,31 @@ const pairs = text ? text.split(';').filter((p) => /^-?\d+(\.\d+)?:-?\d+(\.\d+)?
 check(pairs.length === 4 && pairs.length === text.split(';').length, `HA holds a 4 point polygon (${text})`);
 check(Boolean(await waitFor(`[...document.querySelectorAll('output')].some((o) => /All changes saved/.test(o.textContent))`)), 'the toolbar reads All changes saved');
 
+// A save refreshes the device mapping; that must keep the undo history and must not flag the mapping as missing.
+const allSaved = `[...document.querySelectorAll('output')].some((o) => /All changes saved/.test(o.textContent))`;
+const polygonPoints = `JSON.stringify([...document.querySelectorAll('[role=application] polygon')].map((p) => p.getAttribute('points')))`;
+check(await pickRadio('Tool', 'select'), 'the Select tool is selectable');
+const beforeMove = await evaluate(polygonPoints);
+const [grab, drop] = [officeAt(1300, 2000), officeAt(1800, 2000)];
+await mouse('mouseMoved', grab, { button: 'none' });
+await mouse('mousePressed', grab, { buttons: 1 });
+for (let i = 1; i <= 8; i++)
+  await mouse('mouseMoved', [grab[0] + ((drop[0] - grab[0]) * i) / 8, grab[1] + ((drop[1] - grab[1]) * i) / 8], { buttons: 1 });
+await mouse('mouseReleased', drop);
+check(Boolean(await waitFor(`${polygonPoints} !== ${JSON.stringify(beforeMove)}`, 3000)), 'dragging Zone 2 moves it');
+check(await clickButton('Save zones'), 'Save zones is clickable after the move');
+let moved = text;
+for (let t = 0; t < 8000 && moved === text; t += 250) { await sleep(250); moved = await haState(polygonEntity); }
+check(moved !== text, 'HA holds the moved polygon');
+check(Boolean(await waitFor(allSaved)), 'the move is saved');
+await sleep(1500);
+await key('z', 'KeyZ', 90, 2);
+check(Boolean(await waitFor(`${polygonPoints} === ${JSON.stringify(beforeMove)}`, 3000)), 'Ctrl+Z after the save puts Zone 2 back');
+check(!(await evaluate(allSaved)), 'the undone move shows as unsaved');
+check(!(await evaluate(`/Entity mappings are not set up/.test(document.body.innerText)`)), 'no "Entity mappings" warning after the save');
+await key('Z', 'KeyZ', 90, 10);
+check(Boolean(await waitFor(allSaved, 3000)), 'Ctrl+Shift+Z returns to the saved state');
+
 const rectEntities = (slot) => ['start_x', 'end_x', 'start_y', 'end_y'].map((s) => `${proPrefix}_zone_${slot}_${s}`);
 check(await openZones(living), 'Living Room zones mode loads');
 check(await pickRadio('Tool', 'rectangle'), 'the Rectangle tool is selectable');

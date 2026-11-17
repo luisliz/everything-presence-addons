@@ -39,7 +39,10 @@ export const ConfirmDialog = ({
   const cancelRef = useRef<HTMLButtonElement>(null);
   useFocusTrap(panelRef, open, cancelRef);
   useScrollLock(open);
-  useEscape(open && !busy, onCancel);
+  // Stays the top Escape layer while busy, so Escape cannot reach the layer underneath.
+  useEscape(open, () => {
+    if (!busy) onCancel();
+  });
 
   if (!open) return null;
 

@@ -152,7 +152,7 @@ const SettingRow = ({ setting, state, draft, disabled }: RowProps) => {
             }
             dirty={dirty}
             deviceValue={device}
-            disabled={disabled}
+            disabled={disabled || draft.applying}
           />
         </Field>,
       );

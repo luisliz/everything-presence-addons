@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { pushEscape, runTopEscape } from './escapeStack.ts';
 import {
   clampNumber,
   formatNumber,
@@ -44,4 +45,17 @@ test('sheet settles on the nearest snap, or the next one in the direction of a f
   assert.equal(resolveSnap(780, 800, 1), 'full');
   assert.equal(resolveSnap(380, 800, -1), 'peek');
   assert.equal(resolveSnap(60, 800, -1), 'peek');
+});
+
+test('Escape runs only the most recently opened layer', () => {
+  const calls: string[] = [];
+  const releaseSheet = pushEscape({ current: () => calls.push('sheet') });
+  const releaseMenu = pushEscape({ current: () => calls.push('menu') });
+  assert.equal(runTopEscape(), true);
+  assert.deepEqual(calls, ['menu']);
+  releaseMenu();
+  runTopEscape();
+  assert.deepEqual(calls, ['menu', 'sheet']);
+  releaseSheet();
+  assert.equal(runTopEscape(), false);
 });

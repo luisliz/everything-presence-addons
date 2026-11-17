@@ -7,6 +7,7 @@ import {
   fetchZonesFromDevice,
   type PolygonModeStatus,
 } from '../../api/zones';
+import { useToast } from '../../components/primitives';
 import { useAppData } from '../../contexts/AppDataContext';
 import { useDeviceMapping } from '../../contexts/DeviceMappingsContext';
 import { useHeatmap } from '../../hooks/useHeatmap';
@@ -18,6 +19,7 @@ import {
 import { resolveCoverageFov } from '../../utils/coverage';
 import { resolveEntityPrefix } from '../../utils/entityUtils';
 import { usesPolygonOnlyZones } from '../../utils/firmware';
+import { smoothStep } from './smoothing';
 import type { RoomFrame, TargetPosition } from './types';
 
 export interface RecordedPoint {
@@ -69,6 +71,7 @@ export function useLiveRoom(
 ) {
   const { room, profile, liveState, targetPositions } = frame;
   const { devices, updateRoom: storeRoom } = useAppData();
+  const toast = useToast();
   const { mapping, loading: mappingLoading } = useDeviceMapping(room.deviceId);
   const device = useMemo(
     () => devices.find((d) => d.id === room.deviceId) ?? null,
@@ -153,23 +156,32 @@ export function useLiveRoom(
       zonesFetchedFor.current === room.id
     )
       return;
-    zonesFetchedFor.current = room.id;
     if (polygonOnly) return;
+    const roomId = room.id;
+    // Marks the read in flight; a failed read clears it so the next run retries.
+    zonesFetchedFor.current = roomId;
     fetchZonesFromDevice(
       room.deviceId,
       room.profileId,
       entityNamePrefix,
       mappingsForApi,
-    )
-      .then(async (zones) => {
+    ).then(
+      async (zones) => {
         const latest = roomRef.current;
-        if (latest.id !== room.id) return;
+        if (latest.id !== roomId) return;
         // A transient empty read must not wipe known-good stored zones.
         if (zones.length === 0 && latest.zones.length > 0) return;
         storeRoom({ ...latest, zones });
-        await updateRoom(latest.id, { zones });
-      })
-      .catch(() => null);
+        await updateRoom(latest.id, { zones }).catch(() =>
+          toast.show('Could not store the zones read from the device', {
+            tone: 'danger',
+          }),
+        );
+      },
+      () => {
+        if (zonesFetchedFor.current === roomId) zonesFetchedFor.current = null;
+      },
+    );
   }, [
     entityNamePrefix,
     mappingLoading,
@@ -179,8 +191,10 @@ export function useLiveRoom(
     room.id,
     room.profileId,
     storeRoom,
+    toast,
   ]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a room switch resets the status, so it must be read again for the new room
   useEffect(() => {
     if (!room.deviceId || !room.profileId || !entityNamePrefix) {
       setPolygonStatus(NO_POLYGON);
@@ -214,6 +228,7 @@ export function useLiveRoom(
     mappingsForApi,
     polygonOnly,
     room.deviceId,
+    room.id,
     room.profileId,
   ]);
 
@@ -343,6 +358,18 @@ export function useLiveRoom(
     Map<number, { x: number; y: number }>
   >(new Map());
 
+  // Another room's zones, trails and recording must not show while this room's reads are in flight.
+  const [stateFor, setStateFor] = useState(room.id);
+  if (stateFor !== room.id) {
+    setStateFor(room.id);
+    setPolygonStatus(NO_POLYGON);
+    setPolygonZones([]);
+    setTrails(new Map());
+    setRecording(false);
+    setRecorded([]);
+    setAnimated(new Map());
+  }
+
   useEffect(() => {
     if (!showTrails || targetPositions.length === 0) return;
     const now = Date.now();
@@ -393,24 +420,13 @@ export function useLiveRoom(
       );
       return;
     }
+    if (targetPositions.length === 0) {
+      setAnimated((prev) => (prev.size === 0 ? prev : new Map()));
+      return;
+    }
     let frameId = 0;
     const step = () => {
-      setAnimated((prev) => {
-        const next = new Map<number, { x: number; y: number }>();
-        for (const target of targetPositions) {
-          const current = prev.get(target.id);
-          next.set(
-            target.id,
-            current
-              ? {
-                  x: current.x + (target.x - current.x) * SMOOTHING,
-                  y: current.y + (target.y - current.y) * SMOOTHING,
-                }
-              : { x: target.x, y: target.y },
-          );
-        }
-        return next;
-      });
+      setAnimated((prev) => smoothStep(prev, targetPositions, SMOOTHING));
       frameId = requestAnimationFrame(step);
     };
     frameId = requestAnimationFrame(step);

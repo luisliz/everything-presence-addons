@@ -146,6 +146,8 @@ export function useLayoutEditor({
   const [saved, setSaved] = useState(loaded);
   const roomRef = useRef(room);
   roomRef.current = room;
+  const loadedRef = useRef(loaded);
+  loadedRef.current = loaded;
 
   const dirtyCount = useMemo(() => {
     const [now, base] = [snapshotRoom(room), snapshotRoom(saved)];
@@ -241,8 +243,23 @@ export function useLayoutEditor({
 
   const [snapGridMm, setSnapGridMm] = useState(100);
   const [angleSnap, setAngleSnap] = useState(false);
+  const [altHeld, setAltHeld] = useState(false);
+  useEffect(() => {
+    const track = (event: KeyboardEvent) => setAltHeld(event.altKey);
+    const release = () => setAltHeld(false);
+    window.addEventListener('keydown', track);
+    window.addEventListener('keyup', track);
+    window.addEventListener('blur', release);
+    return () => {
+      window.removeEventListener('keydown', track);
+      window.removeEventListener('keyup', track);
+      window.removeEventListener('blur', release);
+    };
+  }, []);
+  // Holding Alt places and moves corners off the grid.
+  const gridMm = altHeld ? 0 : snapGridMm;
   const drawing = useWallDrawing({
-    snapGridMm,
+    snapGridMm: gridMm,
     onPointsChange: changePoints,
     currentPoints: pointsOf(room),
   });
@@ -881,7 +898,7 @@ export function useLayoutEditor({
         for (const i of moved)
           next[i] = snapToGrid(
             { x: drag.base[i].x + dx, y: drag.base[i].y + dy },
-            snapGridMm,
+            gridMm,
           );
         changePoints(next, {
           coalesceKey:
@@ -969,17 +986,22 @@ export function useLayoutEditor({
       const current = roomRef.current;
       const outlineChanged =
         stableStringify(pointsOf(current)) !== stableStringify(pointsOf(saved));
-      const toSave = (outlineChanged && center()) || current;
+      const toSave = snapshotRoom((outlineChanged && center()) || current);
+      // Only layout keys: the draft's copy of everything else may predate a resync done while it was dirty.
       const payload: RoomUpdatePayload = {
         ...toSave,
         roomShell: toSave.roomShell?.points?.length ? toSave.roomShell : null,
       };
       const result = await updateRoom(current.id, payload);
-      roomRef.current = result.room;
-      setRoom(result.room);
-      setSaved(result.room);
+      const next = applyRoomSnapshot(
+        loadedRef.current,
+        snapshotRoom(result.room),
+      );
+      roomRef.current = next;
+      setRoom(next);
+      setSaved(next);
       setSaveError(null);
-      onSaved(result.room);
+      onSaved(next);
       return true;
     } catch (err) {
       const message =

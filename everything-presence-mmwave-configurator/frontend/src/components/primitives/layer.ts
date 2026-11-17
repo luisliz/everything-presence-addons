@@ -3,9 +3,11 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useRef,
   useState,
 } from 'react';
 import { calculateAnchorPosition } from '../../utils/tooltipPosition';
+import { pushEscape, runTopEscape } from './escapeStack';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -71,17 +73,25 @@ export function useScrollLock(active: boolean) {
   }, [active]);
 }
 
+const onEscapeKey = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && runTopEscape()) event.preventDefault();
+};
+let escapeLayers = 0;
+
+/** Escape closes only the most recently opened active layer. */
 export function useEscape(active: boolean, onEscape: () => void) {
+  const handler = useRef(onEscape);
+  handler.current = onEscape;
   useEffect(() => {
     if (!active) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      onEscape();
+    if (escapeLayers++ === 0) document.addEventListener('keydown', onEscapeKey);
+    const release = pushEscape(handler);
+    return () => {
+      release();
+      if (--escapeLayers === 0)
+        document.removeEventListener('keydown', onEscapeKey);
     };
-    document.addEventListener('keydown', onKeyDown);
-    return () => document.removeEventListener('keydown', onKeyDown);
-  }, [active, onEscape]);
+  }, [active]);
 }
 
 /** Calls `onDismiss` for a pointer press outside every given element. */

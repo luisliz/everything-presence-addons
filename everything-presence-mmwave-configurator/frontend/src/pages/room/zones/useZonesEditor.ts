@@ -138,7 +138,7 @@ export function useZonesEditor(
 ) {
   const { room, profile } = frame;
   const { devices, updateRoom: storeRoom } = useAppData();
-  const { hasValidMappings, clearCache, getMapping } = useDeviceMappings();
+  const { hasValidMappings, refreshMapping, getMapping } = useDeviceMappings();
   const { mapping, loading: mappingLoading } = useDeviceMapping(room.deviceId);
   const toast = useToast();
   const roomRef = useRef(room);
@@ -233,9 +233,17 @@ export function useZonesEditor(
   const [latestBackup, setLatestBackup] = useState<ZoneBackup | null>(null);
   const [backupsLoading, setBackupsLoading] = useState(false);
   const labelsRef = useRef<Record<string, string>>({});
+  const savedRects = useRef<ZoneRect[]>([]);
+  const [zonesError, setZonesError] = useState<string | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(
+    null,
+  );
+  const [zonesAttempt, setZonesAttempt] = useState(0);
+  const [availabilityAttempt, setAvailabilityAttempt] = useState(0);
+  const loadError = zonesError ?? availabilityError;
 
   const polygonMode = status.enabled;
-  const loaded = loadedFor === room.id;
+  const loaded = loadedFor === room.id && loadError === null;
   const history = useZoneHistory({ zones: rectZones, polygonZones });
   const { reset: resetHistory } = history;
 
@@ -320,33 +328,56 @@ export function useZonesEditor(
     );
   });
 
+  const fail = useCallback(
+    (message: string) => {
+      setLastError(message);
+      toast.show(message, { tone: 'danger' });
+    },
+    [toast],
+  );
+
+  // Loads read these through a ref: a mapping refresh after a save must not reload the editor and drop its history.
+  const loadInputs = useRef({ prefix, mappingsForApi, polygonOnly });
+  loadInputs.current = { prefix, mappingsForApi, polygonOnly };
+  const ready = Boolean(deviceId && profileId && !mappingLoading);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: zonesAttempt re-runs the read on Retry
   useEffect(() => {
-    if (!deviceId || !profileId || mappingLoading) return;
+    if (!ready || !deviceId || !profileId) return;
     let cancelled = false;
     const roomId = room.id;
+    const { prefix, mappingsForApi, polygonOnly } = loadInputs.current;
+    setZonesError(null);
     (async () => {
       const labels = await getZoneLabels(deviceId).catch(
         () => ({}) as Record<string, string>,
       );
-      let next = prefix
-        ? await fetchPolygonModeStatus(
+      let next = NO_POLYGON;
+      let polygons: ZonePolygon[] = [];
+      try {
+        if (prefix)
+          next = await fetchPolygonModeStatus(
             deviceId,
             profileId,
             prefix,
             mappingsForApi,
-          ).catch(() => NO_POLYGON)
-        : NO_POLYGON;
-      if (polygonOnly && (!next.enabled || !next.supported))
-        next = POLYGON_ONLY;
-      const polygons =
-        next.enabled && prefix
-          ? await fetchPolygonZonesFromDevice(
-              deviceId,
-              profileId,
-              prefix,
-              mappingsForApi,
-            ).catch(() => [])
-          : [];
+          );
+        if (polygonOnly && (!next.enabled || !next.supported))
+          next = POLYGON_ONLY;
+        if (next.enabled && prefix)
+          polygons = await fetchPolygonZonesFromDevice(
+            deviceId,
+            profileId,
+            prefix,
+            mappingsForApi,
+          );
+      } catch (err) {
+        if (cancelled) return;
+        const message = `Could not read the zones from the device: ${messageOf(err, 'request failed')}`;
+        setZonesError(message);
+        fail(message);
+        return;
+      }
       let rects = roomRef.current.zones.filter((z) => z.enabled !== false);
       if (!polygonOnly && prefix) {
         try {
@@ -369,6 +400,7 @@ export function useZonesEditor(
       const labelledRects = withLabels(rects, labels);
       const labelledPolygons = withLabels(polygons, labels);
       setCeilingLabels(labels);
+      savedRects.current = labelledRects;
       setRectZones(labelledRects);
       setPolygonZones(labelledPolygons);
       setStatus(next);
@@ -384,14 +416,13 @@ export function useZonesEditor(
     };
   }, [
     deviceId,
-    mappingLoading,
-    mappingsForApi,
-    polygonOnly,
-    prefix,
+    fail,
     profileId,
+    ready,
     resetHistory,
     room.id,
     storeRoom,
+    zonesAttempt,
   ]);
 
   // Ceiling slices come from room config, so their baseline is what the config held when the room loaded.
@@ -405,9 +436,13 @@ export function useZonesEditor(
     }));
   }, [ceilingConfig, ceilingLabels, isCeiling, loaded, room.id]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: availabilityAttempt re-runs the read on Retry
   useEffect(() => {
     setAvailability(NO_AVAILABILITY);
-    if (!deviceId || !profileId || !prefix) return;
+    setAvailabilityError(null);
+    if (!ready || !deviceId || !profileId) return;
+    const { prefix, mappingsForApi } = loadInputs.current;
+    if (!prefix) return;
     let cancelled = false;
     fetchZoneAvailability(deviceId, profileId, prefix, mappingsForApi)
       .then((response) => {
@@ -419,11 +454,16 @@ export function useZonesEditor(
           entryZonesAvailable: response.entryZonesAvailable,
         });
       })
-      .catch(() => undefined);
+      .catch((err) => {
+        if (cancelled) return;
+        const message = `Could not read which zone entities exist: ${messageOf(err, 'request failed')}`;
+        setAvailabilityError(message);
+        fail(message);
+      });
     return () => {
       cancelled = true;
     };
-  }, [deviceId, mappingsForApi, prefix, profileId]);
+  }, [availabilityAttempt, deviceId, fail, profileId, ready]);
 
   const reloadBackups = useCallback(async () => {
     if (!deviceId) {
@@ -448,14 +488,6 @@ export function useZonesEditor(
   useEffect(() => {
     void reloadBackups();
   }, [reloadBackups]);
-
-  const fail = useCallback(
-    (message: string) => {
-      setLastError(message);
-      toast.show(message, { tone: 'danger' });
-    },
-    [toast],
-  );
 
   const pendingCeiling = useRef<CeilingSliceConfig | null>(null);
   const ceilingSeq = useRef(0);
@@ -763,12 +795,13 @@ export function useZonesEditor(
       if (!polygonMode) {
         const result = await updateRoom(room.id, { zones: rectZones });
         storeRoom(result.room);
+        savedRects.current = rectZones;
       }
       if (deviceId) {
         const saved = await saveZoneLabels(deviceId, labelsOf(writeZones));
         if (saved) {
           labelsRef.current = saved.zoneLabels;
-          clearCache(deviceId);
+          void refreshMapping(deviceId);
           const renames = saved.synchronization.warnings;
           if (renames.length > 0)
             warnings.push(
@@ -798,7 +831,7 @@ export function useZonesEditor(
       setSaving(false);
     }
   }, [
-    clearCache,
+    refreshMapping,
     deviceId,
     fail,
     isCeiling,
@@ -846,6 +879,12 @@ export function useZonesEditor(
     try {
       await setPolygonMode(deviceId, profileId, prefix, enable, mappingsForApi);
       setStatus((current) => ({ ...current, enabled: enable }));
+      // Unsaved edits of the shape being left are discarded, so both baselines match what the editor holds.
+      setRectZones(savedRects.current);
+      setBaseline((current) => ({
+        ...current,
+        rect: fingerprints(savedRects.current),
+      }));
       if (enable)
         await loadPolygons({
           deviceId,
@@ -853,7 +892,11 @@ export function useZonesEditor(
           entityNamePrefix: prefix,
           entityMappings: mappingsForApi,
         });
-      else setPolygonZones([]);
+      else {
+        setPolygonZones([]);
+        setBaseline((current) => ({ ...current, polygon: {} }));
+        resetHistory();
+      }
     } catch (err) {
       fail(messageOf(err, 'Could not switch the zone shape'));
     } finally {
@@ -867,7 +910,13 @@ export function useZonesEditor(
     polygonMode,
     prefix,
     profileId,
+    resetHistory,
   ]);
+
+  const retry = useCallback(() => {
+    if (zonesError) setZonesAttempt((n) => n + 1);
+    if (availabilityError) setAvailabilityAttempt((n) => n + 1);
+  }, [availabilityError, zonesError]);
 
   /** Device, profile and prefix for a backup restore; null after telling the user what is missing. */
   const restoreContext =
@@ -957,14 +1006,14 @@ export function useZonesEditor(
   /** Re-read polygons and labels after a backup restore wrote them to the device. */
   const afterRestore = useCallback(
     async (context: RestoreContext) => {
-      clearCache(context.deviceId);
+      void refreshMapping(context.deviceId);
       labelsRef.current = await getZoneLabels(context.deviceId).catch(
         () => labelsRef.current,
       );
       setStatus((current) => ({ ...current, supported: true, enabled: true }));
       await loadPolygons(context);
     },
-    [clearCache, loadPolygons],
+    [loadPolygons, refreshMapping],
   );
 
   const restoreBackup = useCallback(
@@ -1013,6 +1062,8 @@ export function useZonesEditor(
 
   return {
     loaded,
+    loadError,
+    retry,
     zones,
     rectZones,
     polygonZones: polygonMode ? (zones as ZonePolygon[]) : [],

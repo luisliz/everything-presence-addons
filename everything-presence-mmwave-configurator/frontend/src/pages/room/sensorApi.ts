@@ -16,7 +16,7 @@ export interface SettingState {
 }
 
 const HIDDEN_KEYS = new Set(['polygonZonesEnabled']);
-const HIDDEN_GROUP = /^firmware/i;
+const FIRMWARE_GROUP = /^firmware/i;
 
 export const CANVAS_KEYS = new Set([
   'installationAngle',
@@ -29,10 +29,9 @@ export const CANVAS_KEYS = new Set([
   'staticPresenceTriggerRange',
 ]);
 
-/** Groups the Sensor section shows: canvas-affecting groups first, firmware and zone-shape controls removed. */
+/** Groups the Sensor section shows: canvas-affecting groups first, firmware groups last, zone-shape controls removed. */
 export const visibleGroups = (groups: SettingsGroup[]): SettingsGroup[] =>
   groups
-    .filter((group) => !HIDDEN_GROUP.test(group.group))
     .map((group) => ({
       ...group,
       settings: group.settings.filter((s) => !HIDDEN_KEYS.has(s.key)),
@@ -40,10 +39,14 @@ export const visibleGroups = (groups: SettingsGroup[]): SettingsGroup[] =>
     .filter((group) => group.settings.length > 0)
     .map((group, index) => ({
       group,
+      rank: group.settings.some((s) => CANVAS_KEYS.has(s.key))
+        ? 0
+        : FIRMWARE_GROUP.test(group.group)
+          ? 2
+          : 1,
       index,
-      canvas: group.settings.some((s) => CANVAS_KEYS.has(s.key)),
     }))
-    .sort((a, b) => Number(b.canvas) - Number(a.canvas) || a.index - b.index)
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ group }) => group);
 
 /** The button entity that commits a group's numbers on the device (Pro static presence groups). */

@@ -3,6 +3,7 @@ import {
   type ReactElement,
   type ReactNode,
   useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -47,6 +48,18 @@ export const Popover = ({
   useOutsidePress(open, refs, close);
   useEscape(open, closeAndRefocus);
 
+  const positioned = position !== undefined;
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!open || !positioned || !layer) return;
+    (focusableWithin(layer)[0] ?? layer).focus();
+    return () => {
+      const active = document.activeElement;
+      if (active === document.body || layer.contains(active))
+        focusableWithin(anchorRef.current as HTMLElement)[0]?.focus();
+    };
+  }, [open, positioned]);
+
   return (
     <>
       <span ref={anchorRef} className="inline-flex">
@@ -64,12 +77,13 @@ export const Popover = ({
             id={layerId}
             role="dialog"
             aria-label={label}
+            tabIndex={-1}
             style={{
               left: position?.left ?? -9999,
               top: position?.top ?? -9999,
             }}
             className={cx(
-              'fixed z-[110] max-h-[70dvh] overflow-y-auto rounded-xl border border-line bg-surface p-3 shadow-e2',
+              'fixed z-[110] max-h-[70dvh] overflow-y-auto rounded-xl border border-line bg-surface p-3 shadow-e2 focus:outline-none',
               className,
             )}
           >

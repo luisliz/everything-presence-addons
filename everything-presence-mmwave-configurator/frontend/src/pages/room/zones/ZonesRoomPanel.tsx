@@ -75,7 +75,18 @@ export const ZonesRoomPanel = ({
           </Badge>
         }
       >
-        {!editor.loaded ? (
+        {editor.loadError ? (
+          <Note
+            tone="danger"
+            actions={
+              <Button size="sm" onClick={editor.retry}>
+                Retry
+              </Button>
+            }
+          >
+            {editor.loadError}
+          </Note>
+        ) : !editor.loaded ? (
           <output aria-label="Loading zones" className="block space-y-2">
             {['a', 'b', 'c'].map((key) => (
               <span

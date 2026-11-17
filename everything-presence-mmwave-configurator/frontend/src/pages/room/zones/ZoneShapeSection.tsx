@@ -72,10 +72,17 @@ export const ZoneShapeSection = ({ editor }: { editor: ZonesEditor }) => {
                 : 'rectangle zones to polygon zones'}{' '}
               for detection. Your {polygonMode ? 'polygon' : 'rectangle'} zones
               stay saved on the device.
+              {editor.dirtyCount > 0 &&
+                ` Your ${editor.dirtyCount} unsaved zone change${editor.dirtyCount === 1 ? '' : 's'} will be discarded.`}
             </span>
           </span>
         }
-        confirmLabel={`Switch to ${polygonMode ? 'rectangles' : 'polygons'}`}
+        tone={editor.dirtyCount > 0 ? 'danger' : 'default'}
+        confirmLabel={
+          editor.dirtyCount > 0
+            ? 'Discard and switch'
+            : `Switch to ${polygonMode ? 'rectangles' : 'polygons'}`
+        }
         onCancel={() => setConfirming(false)}
         onConfirm={() => {
           setConfirming(false);

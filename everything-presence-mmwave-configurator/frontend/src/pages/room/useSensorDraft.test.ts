@@ -35,7 +35,12 @@ test('setting the device value back makes the row clean', () => {
 test('ok drops the applied value; error keeps it for retry', () => {
   let draft = sensorDraftReducer(EMPTY_DRAFT, set('a', 1, 0));
   draft = sensorDraftReducer(draft, set('b', 2, 0));
-  draft = sensorDraftReducer(draft, { type: 'status', key: 'a', status: 'ok' });
+  draft = sensorDraftReducer(draft, {
+    type: 'status',
+    key: 'a',
+    status: 'ok',
+    written: 1,
+  });
   draft = sensorDraftReducer(draft, {
     type: 'status',
     key: 'b',
@@ -51,6 +56,19 @@ test('ok drops the applied value; error keeps it for retry', () => {
     status: 'idle',
   });
   assert.deepEqual(draft.status, { b: 'error' });
+});
+
+test('ok keeps a value the user changed while the write was in flight', () => {
+  let draft = sensorDraftReducer(EMPTY_DRAFT, set('a', 1, 0));
+  draft = sensorDraftReducer(draft, set('a', 5, 0));
+  draft = sensorDraftReducer(draft, {
+    type: 'status',
+    key: 'a',
+    status: 'ok',
+    written: 1,
+  });
+  assert.deepEqual(draft.values, { a: 5 });
+  assert.deepEqual(draft.status, { a: 'ok' });
 });
 
 test('discard drops dirty values and their row state, keeps immediate-write state', () => {

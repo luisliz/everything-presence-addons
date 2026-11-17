@@ -224,15 +224,9 @@ export const DeviceMappingsProvider: React.FC<DeviceMappingsProviderProps> = ({
     [mappings]
   );
 
-  // Force refresh
+  // Force refresh; the cached mapping stays visible until the fresh one arrives.
   const refreshMapping = useCallback(
     async (deviceId: string): Promise<void> => {
-      // Clear cache first
-      setMappings((prev) => {
-        const next = new Map(prev);
-        next.delete(deviceId);
-        return next;
-      });
       setSettingsCache((prev) => {
         const next = new Map(prev);
         for (const key of next.keys()) {
@@ -242,10 +236,24 @@ export const DeviceMappingsProvider: React.FC<DeviceMappingsProviderProps> = ({
         }
         return next;
       });
-      // Fetch fresh
-      await getMapping(deviceId);
+      try {
+        const mapping = await getDeviceMapping(deviceId);
+        setMappings((prev) =>
+          new Map(prev).set(deviceId, { mapping, loading: false, error: null, lastFetched: Date.now() })
+        );
+      } catch (error) {
+        setMappings((prev) => {
+          const existing = prev.get(deviceId);
+          return new Map(prev).set(deviceId, {
+            mapping: existing?.mapping ?? null,
+            loading: false,
+            error: error instanceof Error ? error.message : 'Failed to load mapping',
+            lastFetched: existing?.lastFetched ?? null,
+          });
+        });
+      }
     },
-    [getMapping]
+    []
   );
 
   // Clear cache

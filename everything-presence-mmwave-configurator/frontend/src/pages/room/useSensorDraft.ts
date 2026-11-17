@@ -14,7 +14,14 @@ export interface SensorDraft {
 
 export type DraftAction =
   | { type: 'set'; key: string; value: number; deviceValue?: number | null }
-  | { type: 'status'; key: string; status: DraftStatus; error?: string }
+  | {
+      type: 'status';
+      key: string;
+      status: DraftStatus;
+      error?: string;
+      /** With 'ok': the value that reached the device; a newer draft value stays dirty. */
+      written?: string | number | boolean;
+    }
   | { type: 'discard' }
   | { type: 'reset' };
 
@@ -45,7 +52,7 @@ export function sensorDraftReducer(
     case 'status':
       return {
         values:
-          action.status === 'ok'
+          action.status === 'ok' && draft.values[action.key] === action.written
             ? without(draft.values, action.key)
             : draft.values,
         status:
@@ -130,8 +137,8 @@ export interface SensorDraftApi {
   set: (key: string, value: number) => void;
   discard: () => void;
   apply: () => Promise<boolean>;
-  /** Immediate write for switches, selects, lights and buttons, with per-row status. */
-  writeNow: (key: string, value: string | number | boolean) => Promise<void>;
+  /** Immediate write for switches, selects, lights and buttons, with per-row status; resolves whether it reached the device. */
+  writeNow: (key: string, value: string | number | boolean) => Promise<boolean>;
 }
 
 export function useSensorDraft(
@@ -158,8 +165,12 @@ export function useSensorDraft(
   }, []);
 
   const mark = useCallback(
-    (key: string, status: DraftStatus, error?: string) => {
-      dispatch({ type: 'status', key, status, error });
+    (
+      key: string,
+      status: DraftStatus,
+      detail: { error?: string; written?: string | number | boolean } = {},
+    ) => {
+      dispatch({ type: 'status', key, status, ...detail });
       window.clearTimeout(timers.current.get(key));
       if (status === 'ok')
         timers.current.set(
@@ -193,11 +204,11 @@ export function useSensorDraft(
       mark(key, 'writing');
       try {
         await write(key, value);
-        mark(key, 'ok');
+        mark(key, 'ok', { written: value });
         return true;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Write failed';
-        mark(key, 'error', message);
+        mark(key, 'error', { error: message });
         setLastError(message);
         return false;
       }
@@ -223,13 +234,6 @@ export function useSensorDraft(
     return allOk;
   }, [draft.values, groups, writeKey]);
 
-  const writeNow = useCallback(
-    async (key: string, value: string | number | boolean) => {
-      await writeKey(key, value);
-    },
-    [writeKey],
-  );
-
   const discard = useCallback(() => {
     dispatch({ type: 'discard' });
     setLastError(null);
@@ -243,6 +247,6 @@ export function useSensorDraft(
     set,
     discard,
     apply,
-    writeNow,
+    writeNow: writeKey,
   };
 }
