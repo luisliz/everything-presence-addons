@@ -1,431 +1,455 @@
-import React from 'react';
-import { Door } from '../api/types';
+import {
+  mdiCheck,
+  mdiClose,
+  mdiDeleteOutline,
+  mdiDoor,
+  mdiLockOpenVariantOutline,
+  mdiLockOutline,
+} from '@mdi/js';
+import { type ReactNode, useId } from 'react';
+import type { Door } from '../api/types';
 import { DoorStyleIcon } from './DoorStyleIcon';
+import {
+  Button,
+  cx,
+  Field,
+  Icon,
+  IconButton,
+  Note,
+  NumberField,
+} from './primitives';
 
-interface DoorEditorProps {
-  door: Door;
-  onChange: (door: Door) => void;
-  onDelete: () => void;
-  onClose?: () => void;
-  /** Pins this door so it can no longer be selected or dragged on the canvas. */
-  onToggleLock?: () => void;
-  maxSegmentIndex: number; // Number of wall segments - 1
-  validation?: {
-    overlaps: boolean;
-    nearCorner: boolean;
-    tooWide: boolean;
-    overlapWith?: string[];
-  } | null;
+export interface DoorValidation {
+  overlaps: boolean;
+  nearCorner: boolean;
+  tooWide: boolean;
 }
 
-export const DoorEditor: React.FC<DoorEditorProps> = ({
+interface Choice<T> {
+  value: T;
+  label: string;
+  description?: string;
+  art: ReactNode;
+}
+
+const ChoiceGrid = <T extends string>({
+  legend,
+  hint,
+  value,
+  options,
+  onChange,
+}: {
+  legend: string;
+  hint?: string;
+  value: T;
+  options: Choice<T>[];
+  onChange: (value: T) => void;
+}) => {
+  const hintId = useId();
+  return (
+    <fieldset aria-describedby={hint ? hintId : undefined}>
+      <legend className="mb-2 text-sm text-fg-muted">{legend}</legend>
+      <div className="grid grid-cols-2 gap-2">
+        {options.map((option) => {
+          const checked = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={checked}
+              aria-label={option.description ?? option.label}
+              onClick={() => onChange(option.value)}
+              className={cx(
+                'relative flex flex-col items-center gap-1 rounded-lg border p-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed',
+                checked
+                  ? 'border-accent/60 bg-accent-tint font-medium text-accent-ink'
+                  : 'border-line bg-surface text-fg-muted hover:bg-surface-2 hover:text-fg',
+              )}
+            >
+              {checked && (
+                <Icon
+                  path={mdiCheck}
+                  size={16}
+                  className="absolute right-1.5 top-1.5"
+                />
+              )}
+              {option.art}
+              <span>{option.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      {hint && (
+        <p id={hintId} className="mt-1.5 text-xs text-fg-muted">
+          {hint}
+        </p>
+      )}
+    </fieldset>
+  );
+};
+
+const Opening = ({ children }: { children: ReactNode }) => (
+  <svg className="h-10 w-10" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+    <rect
+      x="3"
+      y="21"
+      width="42"
+      height="24"
+      fill="currentColor"
+      opacity="0.1"
+      rx="2"
+    />
+    <line
+      x1="3"
+      y1="20"
+      x2="18"
+      y2="20"
+      stroke="currentColor"
+      strokeWidth="2.25"
+      strokeLinecap="round"
+    />
+    <line
+      x1="30"
+      y1="20"
+      x2="45"
+      y2="20"
+      stroke="currentColor"
+      strokeWidth="2.25"
+      strokeLinecap="round"
+    />
+    {children}
+  </svg>
+);
+
+const Arc = ({ d }: { d: string }) => (
+  <path
+    d={d}
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeOpacity="0.6"
+    strokeDasharray="3 2"
+    strokeLinecap="round"
+  />
+);
+
+const swingArt = (inward: boolean) => {
+  const panelY = inward ? 32 : 8;
+  return (
+    <Opening>
+      <Arc d={`M30 20 A12 12 0 0 ${inward ? 1 : 0} 18 ${panelY}`} />
+      <line
+        x1="18"
+        y1="20"
+        x2="18"
+        y2={panelY}
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+      <circle cx="18" cy="20" r="2" fill="currentColor" />
+    </Opening>
+  );
+};
+
+const hingeArt = (left: boolean) => {
+  const hingeX = left ? 18 : 30;
+  return (
+    <Opening>
+      <Arc
+        d={`M${left ? 30 : 18} 20 A12 12 0 0 ${left ? 1 : 0} ${hingeX} 32`}
+      />
+      <line
+        x1={hingeX}
+        y1="20"
+        x2={hingeX}
+        y2="32"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+      <circle cx={hingeX} cy="20" r="2" fill="currentColor" />
+    </Opening>
+  );
+};
+
+const slideArt = (left: boolean) => {
+  const [start, end] = left ? [18, 24] : [24, 30];
+  const farJamb = left ? 30 : 18;
+  return (
+    <Opening>
+      <line
+        x1={left ? end : start}
+        y1="26"
+        x2={farJamb}
+        y2="26"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeOpacity="0.6"
+        strokeDasharray="3 2"
+        strokeLinecap="round"
+      />
+      <line
+        x1={start}
+        y1="26"
+        x2={end}
+        y2="26"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+      <circle cx={farJamb} cy="26" r="2" fill="currentColor" />
+    </Opening>
+  );
+};
+
+const STYLES: Array<{ value: Door['style']; label: string }> = [
+  { value: 'single', label: 'Hinged' },
+  { value: 'double', label: 'Double' },
+  { value: 'sliding', label: 'Sliding' },
+  { value: 'opening', label: 'Opening' },
+];
+
+export interface DoorEditorBodyProps {
+  door: Door;
+  onChange: (door: Door) => void;
+  /** Number of wall segments - 1. */
+  maxSegmentIndex: number;
+  validation?: DoorValidation | null;
+}
+
+/** Door fields without chrome; the Layout inspector and the wizard drawer both render it. */
+export const DoorEditorBody = ({
   door,
   onChange,
+  maxSegmentIndex,
+  validation,
+}: DoorEditorBodyProps) => {
+  const wallId = useId();
+  const positionId = useId();
+  const style = door.style ?? 'single';
+  const wide = style === 'sliding' || style === 'double';
+  const set = (updates: Partial<Door>) => onChange({ ...door, ...updates });
+
+  return (
+    <div className="space-y-5">
+      {validation?.overlaps && (
+        <Note tone="warning" title="Overlaps another door">
+          Move it along the wall so the two doors do not overlap.
+        </Note>
+      )}
+      {validation?.nearCorner && (
+        <Note tone="warning" title="Close to a corner">
+          Consider moving it toward the middle of the wall.
+        </Note>
+      )}
+      {validation?.tooWide && (
+        <Note tone="danger" title="Wider than the wall allows">
+          The door takes more than 90% of the wall. Make it narrower or pick a
+          longer wall.
+        </Note>
+      )}
+
+      <ChoiceGrid
+        legend="Type"
+        value={style}
+        onChange={(value) => set({ style: value })}
+        options={STYLES.map((option) => ({
+          ...option,
+          art: <DoorStyleIcon style={option.value} className="h-8 w-12" />,
+        }))}
+      />
+
+      <Field label="Wall" htmlFor={wallId}>
+        <select
+          id={wallId}
+          value={door.segmentIndex}
+          onChange={(event) =>
+            set({ segmentIndex: Number(event.target.value) })
+          }
+          className="h-9 w-full rounded-lg border border-line bg-surface px-2.5 text-sm text-fg focus:outline-none focus:ring-2 focus:ring-accent [@media(pointer:coarse)]:h-11"
+        >
+          {Array.from({ length: maxSegmentIndex + 1 }, (_, i) => (
+            <option key={`wall-${i + 1}`} value={i}>
+              Wall {i + 1}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field label="Position along wall" htmlFor={positionId}>
+        <div className="flex items-center gap-3">
+          <input
+            id={positionId}
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={door.positionOnSegment}
+            onChange={(event) =>
+              set({ positionOnSegment: Number(event.target.value) })
+            }
+            className="w-full accent-accent"
+          />
+          <output
+            htmlFor={positionId}
+            className="w-10 text-right text-xs tabular-nums text-fg-muted"
+          >
+            {Math.round(door.positionOnSegment * 100)}%
+          </output>
+        </div>
+      </Field>
+
+      <Field
+        label="Width"
+        layout="row"
+        help={
+          wide
+            ? 'Wide openings can be up to 3000 mm.'
+            : 'A standard door is 800 to 900 mm.'
+        }
+      >
+        <NumberField
+          value={door.widthMm}
+          onChange={(widthMm) => set({ widthMm })}
+          min={600}
+          max={wide ? 3000 : 1200}
+          step={10}
+          unit="mm"
+          ariaLabel="Door width"
+        />
+      </Field>
+
+      {(style === 'single' || style === 'double') && (
+        <ChoiceGrid
+          legend="Swing direction"
+          hint="The shaded side is the room."
+          value={door.swingDirection}
+          onChange={(value) => set({ swingDirection: value })}
+          options={[
+            {
+              value: 'in',
+              label: 'Into room',
+              description: 'Opens into the room',
+              art: swingArt(true),
+            },
+            {
+              value: 'out',
+              label: 'Out of room',
+              description: 'Opens away from the room',
+              art: swingArt(false),
+            },
+          ]}
+        />
+      )}
+      {style === 'single' && (
+        <ChoiceGrid
+          legend="Hinge side"
+          hint="The dot marks the hinge."
+          value={door.swingSide}
+          onChange={(value) => set({ swingSide: value })}
+          options={[
+            {
+              value: 'left',
+              label: 'Left',
+              description: 'Hinge on the left of the doorway',
+              art: hingeArt(true),
+            },
+            {
+              value: 'right',
+              label: 'Right',
+              description: 'Hinge on the right of the doorway',
+              art: hingeArt(false),
+            },
+          ]}
+        />
+      )}
+      {style === 'sliding' && (
+        <ChoiceGrid
+          legend="Slides toward"
+          hint="The panel stows on this side of the opening."
+          value={door.swingSide}
+          onChange={(value) => set({ swingSide: value })}
+          options={[
+            {
+              value: 'left',
+              label: 'Left',
+              description: 'Panel slides to the left half',
+              art: slideArt(true),
+            },
+            {
+              value: 'right',
+              label: 'Right',
+              description: 'Panel slides to the right half',
+              art: slideArt(false),
+            },
+          ]}
+        />
+      )}
+    </div>
+  );
+};
+
+interface DoorEditorProps extends DoorEditorBodyProps {
+  onDelete: () => void;
+  onClose?: () => void;
+  onToggleLock?: () => void;
+}
+
+/** Right-hand drawer used by the setup wizard. */
+export const DoorEditor = ({
   onDelete,
   onClose,
   onToggleLock,
-  maxSegmentIndex,
-  validation,
-}) => {
-  const isLocked = !!door.locked;
-  const handleChange = (updates: Partial<Door>) => {
-    onChange({ ...door, ...updates });
-  };
-
-  const hasWarnings = validation && (validation.overlaps || validation.nearCorner || validation.tooWide);
-  const style = door.style ?? 'single';
-  const styleOptions: Array<{ value: Door['style']; label: string }> = [
-    { value: 'single', label: 'Single' },
-    { value: 'sliding', label: 'Sliding' },
-    { value: 'opening', label: 'Opening' },
-    { value: 'double', label: 'Double' },
-  ];
-  const swingDirectionOptions: Array<{
-    value: Door['swingDirection'];
-    label: string;
-    description: string;
-  }> = [
-    {
-      value: 'in',
-      label: 'Into room',
-      description: 'Door opens into the selected room',
-    },
-    {
-      value: 'out',
-      label: 'Out of room',
-      description: 'Door opens away from the selected room',
-    },
-  ];
-  const hingeSideOptions: Array<{
-    value: Door['swingSide'];
-    label: string;
-    description: string;
-  }> = [
-    {
-      value: 'left',
-      label: 'Left',
-      description: 'Hinge is on the left side of the doorway',
-    },
-    {
-      value: 'right',
-      label: 'Right',
-      description: 'Hinge is on the right side of the doorway',
-    },
-  ];
-  // Sliding doors reuse swingSide for the side the panel stows on when open.
-  const slideSideOptions: Array<{
-    value: Door['swingSide'];
-    label: string;
-    description: string;
-  }> = [
-    {
-      value: 'left',
-      label: 'Left',
-      description: 'Panel slides to the left half of the opening to open',
-    },
-    {
-      value: 'right',
-      label: 'Right',
-      description: 'Panel slides to the right half of the opening to open',
-    },
-  ];
-
+  ...body
+}: DoorEditorProps) => {
+  const locked = Boolean(body.door.locked);
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-80 bg-slate-900/95 backdrop-blur border-l border-slate-700 shadow-2xl flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 text-aqua-400 flex items-center justify-center text-2xl">
-            🚪
-          </div>
-          <h2 className="text-lg font-semibold text-white">Door</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          {onToggleLock && (
-            <button
-              onClick={onToggleLock}
-              className={`transition-colors ${isLocked ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-amber-300'}`}
-              aria-label={isLocked ? 'Unlock door' : 'Lock door'}
-              aria-pressed={isLocked}
-              title={isLocked ? 'Unlock this door' : 'Lock this door so it cannot be selected or moved'}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d={isLocked
-                    ? 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75M6.75 10.5h10.5a2.25 2.25 0 012.25 2.25v6a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 18.75v-6a2.25 2.25 0 012.25-2.25z'
-                    : 'M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 10.5h10.5a2.25 2.25 0 012.25 2.25v6a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18.75v-6a2.25 2.25 0 012.25-2.25z'}
-                />
-              </svg>
-            </button>
-          )}
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-white transition-colors"
-              aria-label="Close"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {isLocked && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-xs text-amber-200">
-          <span className="font-semibold">Locked.</span> This door is pinned in place, so it cannot be
-          moved, resized or deleted. Use the padlock above to unlock it first.
-        </div>
-      )}
-
-      {/* Content - inert while locked, so the padlock above is the only way forward */}
-      <div
-        className={`flex-1 overflow-y-auto px-6 py-4 space-y-6 ${isLocked ? 'pointer-events-none opacity-50' : ''}`}
-        aria-disabled={isLocked || undefined}
-        onWheelCapture={(e) => e.stopPropagation()}
-      >
-        {/* Validation Warnings */}
-        {hasWarnings && (
-          <div className="space-y-2">
-            {validation?.overlaps && (
-              <div className="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <span className="text-yellow-400 text-lg mt-0.5">⚠️</span>
-                  <div>
-                    <p className="text-sm font-semibold text-yellow-200">Door Overlap</p>
-                    <p className="text-xs text-yellow-300 mt-1">
-                      This door overlaps with another door on the same wall. Reposition to avoid overlap.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-            {validation?.nearCorner && (
-              <div className="bg-yellow-900/30 border border-yellow-600/50 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <span className="text-yellow-400 text-lg mt-0.5">⚠️</span>
-                  <div>
-                    <p className="text-sm font-semibold text-yellow-200">Near Corner</p>
-                    <p className="text-xs text-yellow-300 mt-1">
-                      Door is very close to a corner. Consider moving it toward the center of the wall.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-            {validation?.tooWide && (
-              <div className="bg-red-900/30 border border-red-600/50 rounded-lg p-3">
-                <div className="flex items-start gap-2">
-                  <span className="text-red-400 text-lg mt-0.5">🚫</span>
-                  <div>
-                    <p className="text-sm font-semibold text-red-200">Door Too Wide</p>
-                    <p className="text-xs text-red-300 mt-1">
-                      Door width exceeds 90% of the wall length. Reduce door width or choose a longer wall.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <fieldset>
-          <legend className="block text-sm font-semibold text-slate-300 mb-3">Door Style</legend>
-          <div className="grid grid-cols-2 gap-2">
-            {styleOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleChange({ style: option.value })}
-                aria-pressed={style === option.value}
-                className={`rounded-lg border p-3 text-center transition-all ${style === option.value
-                  ? 'border-aqua-500 bg-aqua-500/20 text-aqua-100'
-                  : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-600'}`}
-              >
-                <DoorStyleIcon style={option.value} className="mx-auto mb-1 h-8 w-12" />
-                <span className="text-sm font-medium">{option.label}</span>
-              </button>
-            ))}
-          </div>
-        </fieldset>
-
-        {/* Wall Segment */}
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">Wall Segment</label>
-          <select
-            value={door.segmentIndex}
-            onChange={(e) => handleChange({ segmentIndex: parseInt(e.target.value, 10) })}
-            className="w-full px-3 py-2 bg-slate-800/70 border border-slate-700 rounded-lg text-white focus:border-aqua-500 focus:ring-1 focus:ring-aqua-500/50 focus:outline-none"
-          >
-            {Array.from({ length: maxSegmentIndex + 1 }, (_, i) => (
-              <option key={i} value={i}>
-                Wall {i + 1}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-slate-400 mt-1">Select which wall this door is on</p>
-        </div>
-
-        {/* Position Along Wall */}
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">
-            Position Along Wall
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={door.positionOnSegment}
-            onChange={(e) => handleChange({ positionOnSegment: parseFloat(e.target.value) })}
-            className="w-full"
+    <aside
+      aria-label="Door"
+      className="fixed inset-y-0 right-0 z-50 flex w-80 flex-col border-l border-line bg-surface shadow-e2"
+    >
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
+        <Icon path={mdiDoor} className="text-fg-muted" />
+        <h2 className="flex-1 text-sm font-semibold text-fg">Door</h2>
+        {onToggleLock && (
+          <IconButton
+            icon={locked ? mdiLockOutline : mdiLockOpenVariantOutline}
+            label={locked ? 'Unlock door' : 'Lock door'}
+            pressed={locked}
+            size="sm"
+            onClick={onToggleLock}
           />
-          <div className="flex justify-between text-xs text-slate-400 mt-1">
-            <span>Start</span>
-            <span>{(door.positionOnSegment * 100).toFixed(0)}%</span>
-            <span>End</span>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">Slide to position door along the wall</p>
-        </div>
-
-        {/* Door Width */}
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">Door Width</label>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Width (mm)</label>
-            <input
-              type="number"
-              value={door.widthMm}
-              onChange={(e) => handleChange({ widthMm: parseFloat(e.target.value) })}
-              step="10"
-              min="600"
-              max={style === 'sliding' || style === 'double' ? 3000 : 1200}
-              className="w-full px-3 py-2 bg-slate-800/70 border border-slate-700 rounded-lg text-white focus:border-aqua-500 focus:ring-1 focus:ring-aqua-500/50 focus:outline-none"
-            />
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            {style === 'sliding' || style === 'double' ? 'Wide openings may be up to 3000mm' : 'Standard door: 800-900mm'}
-          </p>
-        </div>
-
-        {/* Swing Direction */}
-        {(style === 'single' || style === 'double') && <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">Swing Direction</label>
-          <div className="grid grid-cols-2 gap-3">
-            {swingDirectionOptions.map((option) => {
-              const isIn = option.value === 'in';
-              const panelY = isIn ? 32 : 8;
-              const sweep = isIn ? 1 : 0;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => handleChange({ swingDirection: option.value })}
-                  className={`rounded-lg border p-3 transition-all ${
-                    door.swingDirection === option.value
-                      ? 'border-aqua-500 bg-aqua-500/20 text-aqua-100'
-                      : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-600'
-                  }`}
-                  aria-label={option.description}
-                  title={option.description}
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <svg className="h-12 w-12" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-                      <rect x="3" y="21" width="42" height="24" fill="currentColor" opacity="0.1" rx="2" />
-                      <line x1="3" y1="20" x2="18" y2="20" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-                      <line x1="30" y1="20" x2="45" y2="20" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-                      <path
-                        d={`M30 20 A12 12 0 0 ${sweep} 18 ${panelY}`}
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeOpacity="0.6"
-                        strokeDasharray="3 2"
-                        strokeLinecap="round"
-                      />
-                      <line x1="18" y1="20" x2="18" y2={panelY} stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                      <circle cx="18" cy="20" r="2" fill="currentColor" />
-                    </svg>
-                    <span className="text-sm font-medium">{option.label}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-xs text-slate-400 mt-1">Shaded side is the room. Door swing matches the canvas.</p>
-        </div>}
-
-        {/* Slide Direction */}
-        {style === 'sliding' && <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">Slides Toward</label>
-          <div className="grid grid-cols-2 gap-3">
-            {slideSideOptions.map((option) => {
-              const isLeft = option.value === 'left';
-              // Half-width leaf shown slid across its half of the opening (18-30).
-              const leafStart = isLeft ? 18 : 24;
-              const leafEnd = isLeft ? 24 : 30;
-              const leadingEdgeX = isLeft ? leafEnd : leafStart;
-              const farJambX = isLeft ? 30 : 18;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleChange({ swingSide: option.value })}
-                  className={`rounded-lg border p-3 transition-all ${
-                    door.swingSide === option.value
-                      ? 'border-aqua-500 bg-aqua-500/20 text-aqua-100'
-                      : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-600'
-                  }`}
-                  aria-label={option.description}
-                  title={option.description}
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <svg className="h-12 w-12" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-                      <rect x="3" y="21" width="42" height="24" fill="currentColor" opacity="0.1" rx="2" />
-                      <line x1="3" y1="20" x2="18" y2="20" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-                      <line x1="30" y1="20" x2="45" y2="20" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-                      <line
-                        x1={leadingEdgeX}
-                        y1="26"
-                        x2={farJambX}
-                        y2="26"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeOpacity="0.6"
-                        strokeDasharray="3 2"
-                        strokeLinecap="round"
-                      />
-                      <line x1={leafStart} y1="26" x2={leafEnd} y2="26" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                      <circle cx={farJambX} cy="26" r="2" fill="currentColor" />
-                    </svg>
-                    <span className="text-sm font-medium">{option.label}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-xs text-slate-400 mt-1">The panel slides to this side of the opening; the other half is where it travels.</p>
-        </div>}
-
-        {/* Hinge Side */}
-        {style === 'single' && <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">Hinge Side</label>
-          <div className="grid grid-cols-2 gap-3">
-            {hingeSideOptions.map((option) => {
-              const isLeft = option.value === 'left';
-              const hingeX = isLeft ? 18 : 30;
-              const freeEndClosedX = isLeft ? 30 : 18;
-              const sweep = isLeft ? 1 : 0;
-              return (
-                <button
-                  key={option.value}
-                  onClick={() => handleChange({ swingSide: option.value })}
-                  className={`rounded-lg border p-3 transition-all ${
-                    door.swingSide === option.value
-                      ? 'border-aqua-500 bg-aqua-500/20 text-aqua-100'
-                      : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-600'
-                  }`}
-                  aria-label={option.description}
-                  title={option.description}
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <svg className="h-12 w-12" fill="none" viewBox="0 0 48 48" aria-hidden="true">
-                      <rect x="3" y="21" width="42" height="24" fill="currentColor" opacity="0.1" rx="2" />
-                      <line x1="3" y1="20" x2="18" y2="20" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-                      <line x1="30" y1="20" x2="45" y2="20" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" />
-                      <path
-                        d={`M${freeEndClosedX} 20 A12 12 0 0 ${sweep} ${hingeX} 32`}
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeOpacity="0.6"
-                        strokeDasharray="3 2"
-                        strokeLinecap="round"
-                      />
-                      <line x1={hingeX} y1="20" x2={hingeX} y2="32" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                      <circle cx={hingeX} cy="20" r="2" fill="currentColor" />
-                    </svg>
-                    <span className="text-sm font-medium">{option.label}</span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-xs text-slate-400 mt-1">Dot marks the hinge; the panel and arc swing from that side.</p>
-        </div>}
+        )}
+        {onClose && (
+          <IconButton
+            icon={mdiClose}
+            label="Close"
+            size="sm"
+            onClick={onClose}
+          />
+        )}
+      </header>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {locked && (
+          <Note tone="warning">
+            This door is locked. Unlock it to move, resize or delete it.
+          </Note>
+        )}
+        <fieldset disabled={locked} className="min-w-0 disabled:opacity-50">
+          <DoorEditorBody {...body} />
+        </fieldset>
       </div>
-
-      {/* Footer */}
-      <div className="px-6 py-4 border-t border-slate-700">
-        <button
+      <footer className="border-t border-line p-3">
+        <Button
+          variant="secondary"
+          icon={mdiDeleteOutline}
+          disabled={locked}
           onClick={onDelete}
-          disabled={isLocked}
-          title={isLocked ? 'Unlock this door before deleting it' : 'Delete this door (Del)'}
-          className="w-full px-4 py-2.5 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 rounded-lg text-red-200 font-semibold transition-colors disabled:opacity-40 disabled:hover:bg-red-600/20"
+          className="w-full text-danger-ink"
         >
-          Delete Door <span className="font-normal text-red-200/70">(Del)</span>
-        </button>
-      </div>
-    </div>
+          Delete door
+        </Button>
+      </footer>
+    </aside>
   );
 };

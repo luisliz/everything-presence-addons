@@ -137,7 +137,7 @@ body {
  * The geometry is committed before this plays, so the canvas starts back at the
  * orientation it had (`--room-rotate-from`, set inline as the negated angle) and
  * swings into its new one. Keep the duration in step with
- * ROOM_ROTATION_SPIN_MS in RoomBuilderPage.tsx.
+ * ROTATION_SPIN_MS in pages/room/layout/useLayoutEditor.ts.
  *
  * Under `prefers-reduced-motion` the page skips the spin entirely rather than
  * relying on the rule below, because with no animation `animationend` never

@@ -1,217 +1,189 @@
-import React from 'react';
-import { FurnitureInstance } from '../api/types';
+import {
+  mdiClose,
+  mdiDeleteOutline,
+  mdiLockOpenVariantOutline,
+  mdiLockOutline,
+  mdiSofaOutline,
+} from '@mdi/js';
+import { useId } from 'react';
+import type { FurnitureInstance } from '../api/types';
 import { getFurnitureType } from '../furniture/catalog';
 import { getFurnitureIcon } from '../furniture/icons';
+import {
+  Button,
+  Field,
+  Icon,
+  IconButton,
+  Note,
+  NumberField,
+  Toggle,
+} from './primitives';
 
-interface FurnitureEditorProps {
+export const furnitureLabel = (furniture: FurnitureInstance) =>
+  getFurnitureType(furniture.typeId)?.label ?? 'Furniture';
+
+export interface FurnitureEditorBodyProps {
   furniture: FurnitureInstance;
   onChange: (furniture: FurnitureInstance) => void;
+}
+
+/** Furniture fields without chrome; the Layout inspector and the wizard drawer both render it. */
+export const FurnitureEditorBody = ({
+  furniture,
+  onChange,
+}: FurnitureEditorBodyProps) => {
+  const rotationId = useId();
+  const type = getFurnitureType(furniture.typeId);
+  const set = (updates: Partial<FurnitureInstance>) =>
+    onChange({ ...furniture, ...updates });
+  const ratio =
+    furniture.aspectRatioLocked && type
+      ? type.defaultWidth / type.defaultDepth
+      : null;
+  const meters = (
+    label: string,
+    value: number,
+    onValue: (mm: number) => void,
+    min?: number,
+  ) => (
+    <Field label={label} layout="row">
+      <NumberField
+        value={value / 1000}
+        onChange={(m) => onValue(m * 1000)}
+        min={min}
+        step={0.01}
+        unit="m"
+        ariaLabel={label}
+      />
+    </Field>
+  );
+
+  return (
+    <div className="space-y-3">
+      {meters('X', furniture.x, (x) => set({ x }))}
+      {meters('Y', furniture.y, (y) => set({ y }))}
+      {meters(
+        'Width',
+        furniture.width,
+        (width) => set(ratio ? { width, depth: width / ratio } : { width }),
+        0.1,
+      )}
+      {meters(
+        'Depth',
+        furniture.depth,
+        (depth) => set(ratio ? { depth, width: depth * ratio } : { depth }),
+        0.1,
+      )}
+      <Field
+        label="Height"
+        layout="row"
+        help="For reference only; the plan is 2D."
+      >
+        <span className="text-sm tabular-nums text-fg-muted">
+          {(furniture.height / 1000).toFixed(2)} m
+        </span>
+      </Field>
+      <Toggle
+        label="Keep proportions"
+        checked={furniture.aspectRatioLocked}
+        onChange={(aspectRatioLocked) => set({ aspectRatioLocked })}
+      />
+      <Field label="Rotation" htmlFor={rotationId}>
+        <div className="flex items-center gap-3">
+          <input
+            id={rotationId}
+            type="range"
+            min={0}
+            max={360}
+            value={furniture.rotationDeg}
+            onChange={(event) =>
+              set({ rotationDeg: Number(event.target.value) })
+            }
+            className="w-full accent-accent"
+          />
+          <NumberField
+            value={Math.round(furniture.rotationDeg)}
+            onChange={(rotationDeg) => set({ rotationDeg })}
+            min={0}
+            max={360}
+            step={1}
+            unit="°"
+            ariaLabel="Rotation"
+          />
+        </div>
+      </Field>
+    </div>
+  );
+};
+
+interface FurnitureEditorProps extends FurnitureEditorBodyProps {
   onDelete: () => void;
   onClose?: () => void;
-  /** Pins this item so it can no longer be selected or dragged on the canvas. */
   onToggleLock?: () => void;
 }
 
-export const FurnitureEditor: React.FC<FurnitureEditorProps> = ({
-  furniture,
-  onChange,
+/** Right-hand drawer used by the setup wizard. */
+export const FurnitureEditor = ({
   onDelete,
   onClose,
   onToggleLock,
-}) => {
-  const furnitureType = getFurnitureType(furniture.typeId);
-  const Icon = getFurnitureIcon(furniture.typeId);
-  const isLocked = !!furniture.locked;
-
-  const handleChange = (updates: Partial<FurnitureInstance>) => {
-    onChange({ ...furniture, ...updates });
-  };
-
+  ...body
+}: FurnitureEditorProps) => {
+  const locked = Boolean(body.furniture.locked);
+  const TypeIcon = getFurnitureIcon(body.furniture.typeId);
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-80 bg-slate-900/95 backdrop-blur border-l border-slate-700 shadow-2xl flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-700">
-        <div className="flex items-center gap-3">
-          {Icon && (
-            <div className="w-8 h-8 text-aqua-400">
-              <Icon className="w-full h-full" />
-            </div>
-          )}
-          <h2 className="text-lg font-semibold text-white">{furnitureType?.label || 'Furniture'}</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          {onToggleLock && (
-            <button
-              onClick={onToggleLock}
-              className={`transition-colors ${isLocked ? 'text-amber-400 hover:text-amber-300' : 'text-slate-400 hover:text-amber-300'}`}
-              aria-label={isLocked ? 'Unlock furniture' : 'Lock furniture'}
-              aria-pressed={isLocked}
-              title={isLocked ? 'Unlock this item' : 'Lock this item so it cannot be selected or moved'}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d={isLocked
-                    ? 'M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75M6.75 10.5h10.5a2.25 2.25 0 012.25 2.25v6a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 18.75v-6a2.25 2.25 0 012.25-2.25z'
-                    : 'M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 10.5h10.5a2.25 2.25 0 012.25 2.25v6a2.25 2.25 0 01-2.25 2.25H3.75A2.25 2.25 0 011.5 18.75v-6a2.25 2.25 0 012.25-2.25z'}
-                />
-              </svg>
-            </button>
-          )}
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-white transition-colors"
-              aria-label="Close"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {isLocked && (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-6 py-2 text-xs text-amber-200">
-          <span className="font-semibold">Locked.</span> This item is pinned in place, so it cannot be
-          dragged, resized or deleted. Use the padlock above to unlock it first.
-        </div>
-      )}
-
-      {/* Content - inert while locked, so the padlock above is the only way forward */}
-      <div
-        className={`flex-1 overflow-y-auto px-6 py-4 space-y-6 ${isLocked ? 'pointer-events-none opacity-50' : ''}`}
-        aria-disabled={isLocked || undefined}
-        onWheelCapture={(e) => e.stopPropagation()}
-      >
-        {/* Position */}
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">Position</label>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">X (m)</label>
-              <input
-                type="number"
-                value={(furniture.x / 1000).toFixed(2)}
-                onChange={(e) => handleChange({ x: parseFloat(e.target.value) * 1000 })}
-                step="0.1"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-aqua-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Y (m)</label>
-              <input
-                type="number"
-                value={(furniture.y / 1000).toFixed(2)}
-                onChange={(e) => handleChange({ y: parseFloat(e.target.value) * 1000 })}
-                step="0.1"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-aqua-500 focus:outline-none"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Size */}
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">Size</label>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Width (m)</label>
-              <input
-                type="number"
-                value={(furniture.width / 1000).toFixed(2)}
-                onChange={(e) => {
-                  const newWidth = parseFloat(e.target.value) * 1000;
-                  if (furniture.aspectRatioLocked && furnitureType) {
-                    const aspectRatio = furnitureType.defaultWidth / furnitureType.defaultDepth;
-                    handleChange({ width: newWidth, depth: newWidth / aspectRatio });
-                  } else {
-                    handleChange({ width: newWidth });
-                  }
-                }}
-                step="0.1"
-                min="0.1"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-aqua-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Depth (m)</label>
-              <input
-                type="number"
-                value={(furniture.depth / 1000).toFixed(2)}
-                onChange={(e) => {
-                  const newDepth = parseFloat(e.target.value) * 1000;
-                  if (furniture.aspectRatioLocked && furnitureType) {
-                    const aspectRatio = furnitureType.defaultWidth / furnitureType.defaultDepth;
-                    handleChange({ depth: newDepth, width: newDepth * aspectRatio });
-                  } else {
-                    handleChange({ depth: newDepth });
-                  }
-                }}
-                step="0.1"
-                min="0.1"
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:border-aqua-500 focus:outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Height (m) - Info only</label>
-              <input
-                type="number"
-                value={(furniture.height / 1000).toFixed(2)}
-                disabled
-                className="w-full px-3 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-slate-400 cursor-not-allowed"
-              />
-            </div>
-          </div>
-
-          {/* Aspect Ratio Lock */}
-          <label className="flex items-center gap-2 mt-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={furniture.aspectRatioLocked}
-              onChange={(e) => handleChange({ aspectRatioLocked: e.target.checked })}
-              className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-aqua-600 focus:ring-aqua-500 focus:ring-offset-slate-900"
-            />
-            <span className="text-sm text-slate-300">Lock aspect ratio</span>
-          </label>
-        </div>
-
-        {/* Rotation */}
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-3">
-            Rotation: {Math.round(furniture.rotationDeg)}°
-          </label>
-          <input
-            type="range"
-            min="0"
-            max="360"
-            value={furniture.rotationDeg}
-            onChange={(e) => handleChange({ rotationDeg: parseFloat(e.target.value) })}
-            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-aqua-600"
+    <aside
+      aria-label={furnitureLabel(body.furniture)}
+      className="fixed inset-y-0 right-0 z-50 flex w-80 flex-col border-l border-line bg-surface shadow-e2"
+    >
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
+        {TypeIcon ? (
+          <TypeIcon className="h-5 w-5 text-fg-muted" />
+        ) : (
+          <Icon path={mdiSofaOutline} className="text-fg-muted" />
+        )}
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
+          {furnitureLabel(body.furniture)}
+        </h2>
+        {onToggleLock && (
+          <IconButton
+            icon={locked ? mdiLockOutline : mdiLockOpenVariantOutline}
+            label={locked ? 'Unlock furniture' : 'Lock furniture'}
+            pressed={locked}
+            size="sm"
+            onClick={onToggleLock}
           />
-          <div className="flex justify-between text-xs text-slate-400 mt-1">
-            <span>0°</span>
-            <span>90°</span>
-            <span>180°</span>
-            <span>270°</span>
-            <span>360°</span>
-          </div>
-        </div>
+        )}
+        {onClose && (
+          <IconButton
+            icon={mdiClose}
+            label="Close"
+            size="sm"
+            onClick={onClose}
+          />
+        )}
+      </header>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        {locked && (
+          <Note tone="warning">
+            This item is locked. Unlock it to move, resize or delete it.
+          </Note>
+        )}
+        <fieldset disabled={locked} className="min-w-0 disabled:opacity-50">
+          <FurnitureEditorBody {...body} />
+        </fieldset>
       </div>
-
-      {/* Actions */}
-      <div className="px-6 py-4 border-t border-slate-700 space-y-2">
-        <button
+      <footer className="border-t border-line p-3">
+        <Button
+          variant="secondary"
+          icon={mdiDeleteOutline}
+          disabled={locked}
           onClick={onDelete}
-          disabled={isLocked}
-          title={isLocked ? 'Unlock this item before deleting it' : 'Delete this item (Del)'}
-          className="w-full px-4 py-2.5 rounded-lg bg-rose-600/10 border border-rose-600/50 text-rose-100 font-semibold hover:bg-rose-600/20 transition-all active:scale-95 disabled:opacity-40 disabled:hover:bg-rose-600/10 disabled:active:scale-100"
+          className="w-full text-danger-ink"
         >
-          Delete Furniture <span className="font-normal text-rose-200/70">(Del)</span>
-        </button>
-      </div>
-    </div>
+          Delete furniture
+        </Button>
+      </footer>
+    </aside>
   );
 };

@@ -1,16 +1,18 @@
-import type { ComponentProps } from 'react';
-import { RoomBuilderPage } from '../RoomBuilderPage';
-import type { RoomFrame } from './types';
+import { LayoutMode, type LayoutModeProps } from './layout/LayoutMode';
 
-export interface BuildEntryProps {
-  frame: RoomFrame;
-  legacy: Omit<ComponentProps<typeof RoomBuilderPage>, 'onWizardProgress'>;
-  onWizardProgress: ComponentProps<typeof RoomBuilderPage>['onWizardProgress'];
-  onShowShortcuts: () => void;
+export interface BuildEntryProps extends LayoutModeProps {
+  legacy?: unknown;
 }
 
-export const BuildEntry = ({ legacy, onWizardProgress }: BuildEntryProps) => (
-  <div className="relative min-h-0 flex-1">
-    <RoomBuilderPage {...legacy} onWizardProgress={onWizardProgress} />
-  </div>
+export const BuildEntry = ({
+  frame,
+  onWizardProgress,
+  onShowShortcuts,
+}: BuildEntryProps) => (
+  <LayoutMode
+    key={frame.room.id}
+    frame={frame}
+    onWizardProgress={onWizardProgress}
+    onShowShortcuts={onShowShortcuts}
+  />
 );

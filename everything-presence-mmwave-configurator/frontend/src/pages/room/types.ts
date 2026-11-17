@@ -21,7 +21,10 @@ export type Selection =
   | { kind: 'none' }
   | { kind: 'target'; id: number }
   | { kind: 'zone'; id: string }
-  | { kind: 'device' };
+  | { kind: 'device' }
+  | { kind: 'wall'; index: number }
+  | { kind: 'door'; id: string }
+  | { kind: 'furniture'; id: string };
 
 export const NO_SELECTION: Selection = { kind: 'none' };
 
