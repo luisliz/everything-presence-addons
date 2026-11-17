@@ -1,7 +1,40 @@
-/**
- * EP1 Dashboard Utility Functions
- * Shared calculations and thresholds for EP1 monitoring features
- */
+import {
+  mdiAccessPoint,
+  mdiAccountOffOutline,
+  mdiAccountOutline,
+  mdiEmoticonHappyOutline,
+  mdiEmoticonNeutralOutline,
+  mdiEmoticonOutline,
+  mdiFire,
+  mdiLightbulbOutline,
+  mdiRecordCircleOutline,
+  mdiSnowflake,
+  mdiStopCircleOutline,
+  mdiWaterAlertOutline,
+  mdiWaterOffOutline,
+  mdiWaterPercent,
+  mdiWeatherNight,
+  mdiWeatherSunny,
+  mdiWeatherSunnyAlert,
+  mdiWhiteBalanceSunny,
+} from '@mdi/js';
+import type { Tone } from '../primitives';
+
+export const TONE_INK: Record<Tone, string> = {
+  neutral: 'text-fg-muted',
+  accent: 'text-accent-ink',
+  success: 'text-success-ink',
+  warning: 'text-warning-ink',
+  danger: 'text-danger-ink',
+};
+
+export const TONE_BAR: Record<Tone, string> = {
+  neutral: 'bg-fg-subtle',
+  accent: 'bg-accent',
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-danger',
+};
 
 // ============================================================================
 // CO2 Thresholds and Utilities
@@ -9,9 +42,7 @@
 
 export interface CO2Level {
   label: string;
-  color: string;
-  bgColor: string;
-  borderColor: string;
+  tone: Tone;
   description: string;
 }
 
@@ -19,33 +50,25 @@ export const getCO2Level = (ppm: number): CO2Level => {
   if (ppm < 800) {
     return {
       label: 'Good',
-      color: 'text-emerald-400',
-      bgColor: 'bg-emerald-500/10',
-      borderColor: 'border-emerald-500/30',
+      tone: 'success',
       description: 'Fresh air, excellent ventilation',
     };
   } else if (ppm < 1000) {
     return {
       label: 'Moderate',
-      color: 'text-yellow-400',
-      bgColor: 'bg-yellow-500/10',
-      borderColor: 'border-yellow-500/30',
+      tone: 'accent',
       description: 'Acceptable, consider ventilation',
     };
   } else if (ppm < 2000) {
     return {
       label: 'Poor',
-      color: 'text-orange-400',
-      bgColor: 'bg-orange-500/10',
-      borderColor: 'border-orange-500/30',
+      tone: 'warning',
       description: 'Stale air, open windows recommended',
     };
   } else {
     return {
       label: 'Unhealthy',
-      color: 'text-red-400',
-      bgColor: 'bg-red-500/10',
-      borderColor: 'border-red-500/30',
+      tone: 'danger',
       description: 'Poor air quality, ventilate immediately',
     };
   }
@@ -57,10 +80,8 @@ export const getCO2Level = (ppm: number): CO2Level => {
 
 export interface ComfortLevel {
   label: string;
-  color: string;
-  bgColor: string;
-  borderColor: string;
-  emoji: string;
+  tone: Tone;
+  icon: string;
 }
 
 /**
@@ -74,7 +95,7 @@ export const calculateDewPoint = (tempC: number, humidity: number): number => {
   const a = 17.27;
   const b = 237.7;
 
-  const alpha = ((a * tempC) / (b + tempC)) + Math.log(humidity / 100);
+  const alpha = (a * tempC) / (b + tempC) + Math.log(humidity / 100);
   const dewPoint = (b * alpha) / (a - alpha);
 
   return Math.round(dewPoint * 10) / 10;
@@ -87,7 +108,10 @@ export const calculateDewPoint = (tempC: number, humidity: number): number => {
  * @param humidity Relative humidity percentage
  * @returns Heat index in Celsius, or null if not applicable
  */
-export const calculateHeatIndex = (tempC: number, humidity: number): number | null => {
+export const calculateHeatIndex = (
+  tempC: number,
+  humidity: number,
+): number | null => {
   // Heat index is only meaningful in warm conditions
   if (tempC < 27 || humidity < 40) {
     return null;
@@ -97,7 +121,8 @@ export const calculateHeatIndex = (tempC: number, humidity: number): number | nu
   const T = tempC;
   const RH = humidity;
 
-  const HI = -8.785 +
+  const HI =
+    -8.785 +
     1.611 * T +
     2.339 * RH -
     0.146 * T * RH -
@@ -113,7 +138,10 @@ export const calculateHeatIndex = (tempC: number, humidity: number): number | nu
 /**
  * Get comfort level based on temperature and humidity
  */
-export const getComfortLevel = (tempC: number, humidity: number): ComfortLevel => {
+export const getComfortLevel = (
+  tempC: number,
+  humidity: number,
+): ComfortLevel => {
   // Temperature zones
   const isCold = tempC < 18;
   const isCool = tempC >= 18 && tempC < 20;
@@ -132,79 +160,42 @@ export const getComfortLevel = (tempC: number, humidity: number): ComfortLevel =
   if (isOptimal && isOptimalHumidity) {
     return {
       label: 'Comfortable',
-      color: 'text-emerald-400',
-      bgColor: 'bg-emerald-500/10',
-      borderColor: 'border-emerald-500/30',
-      emoji: '😊',
+      tone: 'success',
+      icon: mdiEmoticonHappyOutline,
     };
   }
 
-  if ((isOptimal || isCool || isWarm) && (isOptimalHumidity || isLowHumidity || isHighHumidity)) {
-    return {
-      label: 'Acceptable',
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-500/10',
-      borderColor: 'border-blue-500/30',
-      emoji: '🙂',
-    };
+  if (
+    (isOptimal || isCool || isWarm) &&
+    (isOptimalHumidity || isLowHumidity || isHighHumidity)
+  ) {
+    return { label: 'Acceptable', tone: 'accent', icon: mdiEmoticonOutline };
   }
 
   if (isCold) {
-    return {
-      label: 'Too Cold',
-      color: 'text-cyan-400',
-      bgColor: 'bg-cyan-500/10',
-      borderColor: 'border-cyan-500/30',
-      emoji: '🥶',
-    };
+    return { label: 'Too Cold', tone: 'accent', icon: mdiSnowflake };
   }
 
   if (isHot && isVeryHumid) {
-    return {
-      label: 'Hot & Humid',
-      color: 'text-red-400',
-      bgColor: 'bg-red-500/10',
-      borderColor: 'border-red-500/30',
-      emoji: '🥵',
-    };
+    return { label: 'Hot & Humid', tone: 'danger', icon: mdiWaterAlertOutline };
   }
 
   if (isHot) {
-    return {
-      label: 'Too Hot',
-      color: 'text-orange-400',
-      bgColor: 'bg-orange-500/10',
-      borderColor: 'border-orange-500/30',
-      emoji: '🔥',
-    };
+    return { label: 'Too Hot', tone: 'warning', icon: mdiFire };
   }
 
   if (isDry) {
-    return {
-      label: 'Too Dry',
-      color: 'text-amber-400',
-      bgColor: 'bg-amber-500/10',
-      borderColor: 'border-amber-500/30',
-      emoji: '🏜️',
-    };
+    return { label: 'Too Dry', tone: 'warning', icon: mdiWaterOffOutline };
   }
 
   if (isVeryHumid) {
-    return {
-      label: 'Too Humid',
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-500/10',
-      borderColor: 'border-blue-500/30',
-      emoji: '💧',
-    };
+    return { label: 'Too Humid', tone: 'accent', icon: mdiWaterPercent };
   }
 
   return {
     label: 'Moderate',
-    color: 'text-slate-400',
-    bgColor: 'bg-slate-500/10',
-    borderColor: 'border-slate-500/30',
-    emoji: '😐',
+    tone: 'neutral',
+    icon: mdiEmoticonNeutralOutline,
   };
 };
 
@@ -214,53 +205,53 @@ export const getComfortLevel = (tempC: number, humidity: number): ComfortLevel =
 
 export interface LightLevel {
   label: string;
-  color: string;
+  tone: Tone;
   recommendation: string;
-  emoji: string;
+  icon: string;
 }
 
 export const getLightLevel = (lux: number): LightLevel => {
   if (lux < 10) {
     return {
       label: 'Dark',
-      color: 'text-slate-500',
+      tone: 'neutral',
       recommendation: 'Too dark for most activities',
-      emoji: '🌑',
+      icon: mdiWeatherNight,
     };
   } else if (lux < 50) {
     return {
       label: 'Dim',
-      color: 'text-slate-400',
+      tone: 'neutral',
       recommendation: 'Low light - suitable for relaxation',
-      emoji: '🌙',
+      icon: mdiWeatherNight,
     };
   } else if (lux < 200) {
     return {
       label: 'Low',
-      color: 'text-yellow-600',
+      tone: 'accent',
       recommendation: 'Ambient lighting - basic tasks',
-      emoji: '💡',
+      icon: mdiLightbulbOutline,
     };
   } else if (lux < 500) {
     return {
       label: 'Moderate',
-      color: 'text-yellow-400',
+      tone: 'accent',
       recommendation: 'Good for general activities',
-      emoji: '☀️',
+      icon: mdiWhiteBalanceSunny,
     };
   } else if (lux < 1000) {
     return {
       label: 'Bright',
-      color: 'text-amber-400',
+      tone: 'success',
       recommendation: 'Ideal for reading & detailed work',
-      emoji: '🌤️',
+      icon: mdiWeatherSunny,
     };
   } else {
     return {
       label: 'Very Bright',
-      color: 'text-orange-400',
+      tone: 'warning',
       recommendation: 'Very bright - may cause glare',
-      emoji: '🌞',
+      icon: mdiWeatherSunnyAlert,
     };
   }
 };
@@ -282,23 +273,45 @@ export interface ActivityEvent {
   type: ActivityEventType;
   timestamp: number;
   label: string;
-  color: string;
+  tone: Tone;
 }
 
-export const getActivityEventDetails = (type: ActivityEventType): { label: string; color: string; emoji: string } => {
+export const getActivityEventDetails = (
+  type: ActivityEventType,
+): { label: string; tone: Tone; icon: string } => {
   switch (type) {
     case 'presence_on':
-      return { label: 'Presence detected', color: 'text-emerald-400', emoji: '👤' };
+      return {
+        label: 'Presence detected',
+        tone: 'success',
+        icon: mdiAccountOutline,
+      };
     case 'presence_off':
-      return { label: 'Presence cleared', color: 'text-slate-400', emoji: '👻' };
+      return {
+        label: 'Presence cleared',
+        tone: 'neutral',
+        icon: mdiAccountOffOutline,
+      };
     case 'mmwave_on':
-      return { label: 'mmWave triggered', color: 'text-blue-400', emoji: '📡' };
+      return {
+        label: 'mmWave triggered',
+        tone: 'accent',
+        icon: mdiAccessPoint,
+      };
     case 'mmwave_off':
-      return { label: 'mmWave cleared', color: 'text-slate-400', emoji: '📡' };
+      return { label: 'mmWave cleared', tone: 'neutral', icon: mdiAccessPoint };
     case 'pir_on':
-      return { label: 'PIR motion', color: 'text-purple-400', emoji: '🔴' };
+      return {
+        label: 'PIR motion',
+        tone: 'accent',
+        icon: mdiRecordCircleOutline,
+      };
     case 'pir_off':
-      return { label: 'PIR cleared', color: 'text-slate-400', emoji: '⚪' };
+      return {
+        label: 'PIR cleared',
+        tone: 'neutral',
+        icon: mdiStopCircleOutline,
+      };
   }
 };
 
@@ -319,7 +332,10 @@ export interface DailyStats {
   lastUpdate: number;
 }
 
-export const createEmptyStats = (deviceId: string, date: string): DailyStats => ({
+export const createEmptyStats = (
+  deviceId: string,
+  date: string,
+): DailyStats => ({
   date,
   deviceId,
   occupancySeconds: 0,

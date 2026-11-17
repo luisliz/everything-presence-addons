@@ -1,3 +1,13 @@
+import {
+  mdiArrowDown,
+  mdiContentCopy,
+  mdiDeleteSweepOutline,
+  mdiDownload,
+  mdiLockOutline,
+  mdiPause,
+  mdiPlay,
+  mdiRefresh,
+} from '@mdi/js';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -9,9 +19,17 @@ import {
   fetchDeviceApiConnection,
   updateDeviceApiConnection,
 } from '../api/deviceLogs';
+import {
+  Badge,
+  Button,
+  Icon,
+  InfoTrigger,
+  Sheet,
+  type Tone,
+} from './primitives';
 
 /**
- * Live device log viewer. The device connection exists only while this modal
+ * Live device log viewer. The device connection exists only while this sheet
  * is open: opening it starts a session, closing it (or the tab) ends it.
  * Lines live only in this component's memory, capped at MAX_LINES.
  */
@@ -30,19 +48,30 @@ type ConnState =
   | { kind: 'idle' }
   | { kind: 'resolving' }
   | { kind: 'connecting'; host: string; encrypted: boolean }
-  | { kind: 'connected'; host: string; hostSource: 'ha' | 'manual' | null; encrypted: boolean; device: DeviceIdentity }
+  | {
+      kind: 'connected';
+      host: string;
+      hostSource: 'ha' | 'manual' | null;
+      encrypted: boolean;
+      device: DeviceIdentity;
+    }
   | { kind: 'closed'; message: string }
-  | { kind: 'error'; code: string; message: string; needs?: 'host' | 'key' | 'remove_key' };
+  | {
+      kind: 'error';
+      code: string;
+      message: string;
+      needs?: 'host' | 'key' | 'remove_key';
+    };
 
 const LEVEL_CLASSES: Record<string, string> = {
-  ERROR: 'text-rose-400',
-  WARN: 'text-amber-300',
-  INFO: 'text-emerald-300',
-  CONFIG: 'text-fuchsia-300',
-  DEBUG: 'text-sky-300',
-  VERBOSE: 'text-slate-400',
-  VERY_VERBOSE: 'text-slate-500',
-  STATE: 'text-teal-300',
+  ERROR: 'text-danger-ink',
+  WARN: 'text-warning-ink',
+  INFO: 'text-success-ink',
+  CONFIG: 'text-accent-ink',
+  DEBUG: 'text-fg-muted',
+  VERBOSE: 'text-fg-subtle',
+  VERY_VERBOSE: 'text-fg-subtle',
+  STATE: 'text-accent-ink',
 };
 
 const LEVEL_LETTER: Record<string, string> = {
@@ -56,12 +85,31 @@ const LEVEL_LETTER: Record<string, string> = {
   STATE: 'S',
 };
 
+const STATUS_TONE: Record<ConnState['kind'], Tone> = {
+  idle: 'neutral',
+  resolving: 'accent',
+  connecting: 'accent',
+  connected: 'success',
+  closed: 'neutral',
+  error: 'danger',
+};
+
+const STATUS_LABEL: Record<ConnState['kind'], string> = {
+  idle: 'Idle',
+  resolving: 'Finding device…',
+  connecting: 'Connecting…',
+  connected: 'Live',
+  closed: 'Disconnected',
+  error: 'Not connected',
+};
+
 const formatTime = (iso: string) => {
   const d = new Date(iso);
   return `${d.toLocaleTimeString([], { hour12: false })}.${String(d.getMilliseconds()).padStart(3, '0')}`;
 };
 
-const formatLine = (l: LogLine) => `${formatTime(l.ts)} [${LEVEL_LETTER[l.level] ?? l.level}]${l.tag ? `[${l.tag}]` : ''}: ${l.msg}`;
+const formatLine = (l: LogLine) =>
+  `${formatTime(l.ts)} [${LEVEL_LETTER[l.level] ?? l.level}]${l.tag ? `[${l.tag}]` : ''}: ${l.msg}`;
 
 interface DeviceLogsModalProps {
   isOpen: boolean;
@@ -70,7 +118,12 @@ interface DeviceLogsModalProps {
   deviceLabel: string;
 }
 
-export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClose, deviceId, deviceLabel }) => {
+export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({
+  isOpen,
+  onClose,
+  deviceId,
+  deviceLabel,
+}) => {
   const [conn, setConn] = useState<ConnState>({ kind: 'idle' });
   const [lines, setLines] = useState<LogLine[]>([]);
   const [level, setLevel] = useState<DeviceLogLevel>('DEBUG');
@@ -104,7 +157,9 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
       pendingRef.current = [];
       setLines((prev) => {
         const next = prev.concat(batch);
-        return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
+        return next.length > MAX_LINES
+          ? next.slice(next.length - MAX_LINES)
+          : next;
       });
     });
   }, []);
@@ -123,7 +178,14 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'start', deviceId, level: levelRef.current, states: showStatesRef.current }));
+      ws.send(
+        JSON.stringify({
+          type: 'start',
+          deviceId,
+          level: levelRef.current,
+          states: showStatesRef.current,
+        }),
+      );
     };
     ws.onmessage = (event) => {
       let msg: DeviceLogServerMessage;
@@ -134,19 +196,36 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
       }
       switch (msg.type) {
         case 'log':
-          pendingRef.current.push({ id: nextId.current++, ts: msg.ts, level: msg.level, tag: msg.tag, msg: msg.msg });
-          if (pendingRef.current.length > MAX_LINES) pendingRef.current.splice(0, pendingRef.current.length - MAX_LINES);
+          pendingRef.current.push({
+            id: nextId.current++,
+            ts: msg.ts,
+            level: msg.level,
+            tag: msg.tag,
+            msg: msg.msg,
+          });
+          if (pendingRef.current.length > MAX_LINES)
+            pendingRef.current.splice(0, pendingRef.current.length - MAX_LINES);
           scheduleFlush();
           break;
         case 'dropped':
           setDropped((d) => d + msg.count);
           break;
         case 'error':
-          setConn({ kind: 'error', code: msg.code, message: msg.message, needs: msg.needs });
+          setConn({
+            kind: 'error',
+            code: msg.code,
+            message: msg.message,
+            needs: msg.needs,
+          });
           break;
         case 'status':
           if (msg.state === 'resolving') setConn({ kind: 'resolving' });
-          else if (msg.state === 'connecting') setConn({ kind: 'connecting', host: msg.host, encrypted: msg.encrypted });
+          else if (msg.state === 'connecting')
+            setConn({
+              kind: 'connecting',
+              host: msg.host,
+              encrypted: msg.encrypted,
+            });
           else if (msg.state === 'connected')
             setConn({
               kind: 'connected',
@@ -155,14 +234,17 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
               encrypted: msg.encrypted,
               device: msg.device,
             });
-          else if (msg.state === 'closed' && msg.reason !== 'stopped') setConn({ kind: 'closed', message: msg.message });
+          else if (msg.state === 'closed' && msg.reason !== 'stopped')
+            setConn({ kind: 'closed', message: msg.message });
           break;
         default:
       }
     };
     ws.onclose = () => {
       setConn((c) =>
-        c.kind === 'connected' || c.kind === 'connecting' || c.kind === 'resolving'
+        c.kind === 'connected' ||
+        c.kind === 'connecting' ||
+        c.kind === 'resolving'
           ? { kind: 'closed', message: 'Lost connection to the add-on.' }
           : c,
       );
@@ -171,7 +253,8 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
     return () => {
       ws.onclose = null;
       ws.onmessage = null;
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'stop' }));
+      if (ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: 'stop' }));
       ws.close();
       wsRef.current = null;
     };
@@ -216,7 +299,9 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
     return lines.filter(
       (l) =>
         (showStates || l.level !== 'STATE') &&
-        (!q || l.msg.toLowerCase().includes(q) || (l.tag ?? '').toLowerCase().includes(q)),
+        (!q ||
+          l.msg.toLowerCase().includes(q) ||
+          (l.tag ?? '').toLowerCase().includes(q)),
     );
   }, [lines, filter, showStates]);
   const isFiltered = filter.trim() !== '' || !showStates;
@@ -246,13 +331,20 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
   const download = () => {
     const header = [
       `# ${deviceLabel}`,
-      conn.kind === 'connected' && conn.device.esphomeVersion ? `# ESPHome ${conn.device.esphomeVersion}` : null,
-      conn.kind === 'connected' && conn.device.projectVersion ? `# Firmware ${conn.device.projectVersion}` : null,
+      conn.kind === 'connected' && conn.device.esphomeVersion
+        ? `# ESPHome ${conn.device.esphomeVersion}`
+        : null,
+      conn.kind === 'connected' && conn.device.projectVersion
+        ? `# Firmware ${conn.device.projectVersion}`
+        : null,
       `# Saved ${new Date().toISOString()}`,
     ]
       .filter(Boolean)
       .join('\n');
-    const blob = new Blob([`${header}\n${visible.map(formatLine).join('\n')}\n`], { type: 'text/plain' });
+    const blob = new Blob(
+      [`${header}\n${visible.map(formatLine).join('\n')}\n`],
+      { type: 'text/plain' },
+    );
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -264,51 +356,69 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
     URL.revokeObjectURL(url);
   };
 
-  if (!isOpen) return null;
+  const description = (
+    <span className="flex items-center gap-1">
+      {deviceLabel}
+      {conn.kind === 'connected' && (
+        <>
+          {' • '}
+          {conn.host}
+          {conn.device.esphomeVersion &&
+            ` • ESPHome ${conn.device.esphomeVersion}`}
+          {conn.device.projectVersion &&
+            ` • Firmware ${conn.device.projectVersion}`}
+          {conn.encrypted && (
+            <Icon path={mdiLockOutline} size={16} label="Encrypted" />
+          )}
+        </>
+      )}
+    </span>
+  );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4">
-      <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 border-b border-slate-700 px-5 py-4">
-          <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-white">Device Logs</h3>
-            <p className="mt-0.5 truncate text-xs text-slate-400">
-              {deviceLabel}
-              {conn.kind === 'connected' && (
-                <>
-                  {' • '}
-                  {conn.host}
-                  {conn.device.esphomeVersion && ` • ESPHome ${conn.device.esphomeVersion}`}
-                  {conn.device.projectVersion && ` • Firmware ${conn.device.projectVersion}`}
-                  {conn.encrypted && ' • 🔒'}
-                </>
-              )}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <StatusPill conn={conn} />
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+    <Sheet
+      open={isOpen}
+      onClose={onClose}
+      variant="side"
+      title="Device logs"
+      description={description}
+      footer={
+        <div className="flex items-center justify-between text-[11px] text-fg-subtle">
+          <span>
+            {lines.length} lines
+            {lines.length >= MAX_LINES
+              ? ` (oldest removed above ${MAX_LINES})`
+              : ''}
+            {isFiltered && ` • ${visible.length} shown`}
+          </span>
+          {!autoScroll && (
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={mdiArrowDown}
+              onClick={() => setAutoScroll(true)}
             >
-              <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+              Jump to latest
+            </Button>
+          )}
         </div>
+      }
+    >
+      <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Badge tone={STATUS_TONE[conn.kind]}>
+            {conn.kind === 'connected' && (
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
+            )}
+            {STATUS_LABEL[conn.kind]}
+          </Badge>
 
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 px-5 py-2.5 text-xs">
-          <label className="flex items-center gap-1.5 text-slate-400">
+          <label className="flex items-center gap-1.5 text-fg-muted">
             Level
             <select
               value={level}
               onChange={(e) => changeLevel(e.target.value as DeviceLogLevel)}
-              className="rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-slate-100 focus:border-aqua-500 focus:outline-none"
+              className="rounded-lg border border-line bg-surface-2 px-2 py-1 text-fg focus:border-accent focus:outline-none"
             >
               {DEVICE_LOG_LEVELS.map((l) => (
                 <option key={l} value={l}>
@@ -317,147 +427,152 @@ export const DeviceLogsModal: React.FC<DeviceLogsModalProps> = ({ isOpen, onClos
               ))}
             </select>
           </label>
+
           <input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter text or tag…"
-            className="min-w-[10rem] flex-1 rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-slate-100 placeholder:text-slate-500 focus:border-aqua-500 focus:outline-none"
+            className="min-w-[10rem] flex-1 rounded-lg border border-line bg-surface-2 px-2 py-1 text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none"
           />
-          <label
-            className="flex items-center gap-1.5 text-slate-400"
-            title="Entity state changes ([S] lines), as the ESPHome dashboard shows them"
-          >
+
+          <label className="flex items-center gap-1 text-fg-muted">
             <input
               type="checkbox"
               checked={showStates}
               onChange={(e) => changeShowStates(e.target.checked)}
-              className="accent-aqua-500"
+              className="accent-accent"
             />
             States
+            <InfoTrigger
+              label="About States"
+              content="Entity state changes ([S] lines), as the ESPHome dashboard shows them."
+            />
           </label>
-          <ToolbarButton onClick={() => setPaused((p) => !p)} active={paused}>
-            {paused ? `Resume${pendingRef.current.length ? ` (${pendingRef.current.length})` : ''}` : 'Pause'}
-          </ToolbarButton>
-          <ToolbarButton onClick={clear}>Clear</ToolbarButton>
-          <ToolbarButton onClick={copy} disabled={visible.length === 0}>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={paused ? mdiPlay : mdiPause}
+            onClick={() => setPaused((p) => !p)}
+          >
+            {paused
+              ? `Resume${pendingRef.current.length ? ` (${pendingRef.current.length})` : ''}`
+              : 'Pause'}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={mdiDeleteSweepOutline}
+            onClick={clear}
+          >
+            Clear
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={mdiContentCopy}
+            onClick={copy}
+            disabled={visible.length === 0}
+          >
             Copy
-          </ToolbarButton>
-          <ToolbarButton onClick={download} disabled={visible.length === 0}>
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={mdiDownload}
+            onClick={download}
+            disabled={visible.length === 0}
+          >
             Download
-          </ToolbarButton>
+          </Button>
           {(conn.kind === 'closed' || conn.kind === 'error') && (
-            <ToolbarButton onClick={reconnect} primary>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={mdiRefresh}
+              onClick={reconnect}
+            >
               Reconnect
-            </ToolbarButton>
+            </Button>
           )}
         </div>
 
         {conn.kind === 'error' && (
-          <ConnectionProblem deviceId={deviceId} conn={conn} onRetry={reconnect} />
+          <ConnectionProblem
+            deviceId={deviceId}
+            conn={conn}
+            onRetry={reconnect}
+          />
         )}
         {conn.kind === 'closed' && (
-          <div className="border-b border-slate-800 bg-slate-800/40 px-5 py-2 text-xs text-slate-300">{conn.message}</div>
+          <div className="rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs text-fg-muted">
+            {conn.message}
+          </div>
         )}
         {dropped > 0 && (
-          <div className="border-b border-slate-800 bg-amber-500/10 px-5 py-1.5 text-xs text-amber-200">
+          <div className="rounded-lg border border-warning/40 bg-warning-tint px-3 py-1.5 text-xs text-warning-ink">
             {dropped} lines were skipped because the browser could not keep up.
           </div>
         )}
 
-        {/* Log body */}
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="flex-1 overflow-auto bg-slate-950 px-4 py-3 font-mono text-[12px] leading-5"
+          className="h-[60dvh] overflow-y-auto rounded-lg bg-bg px-3 py-2 font-mono text-[12px] leading-5 md:h-[calc(100dvh-14rem)]"
         >
           {visible.length === 0 ? (
-            <EmptyState conn={conn} level={level} hasFilter={isFiltered && lines.length > 0} />
+            <EmptyState
+              conn={conn}
+              level={level}
+              hasFilter={isFiltered && lines.length > 0}
+            />
           ) : (
             visible.map((l) => (
               <div key={l.id} className="whitespace-pre-wrap break-words">
-                <span className="text-slate-600">{formatTime(l.ts)} </span>
-                <span className={LEVEL_CLASSES[l.level] ?? 'text-slate-300'}>
+                <span className="text-fg-subtle">{formatTime(l.ts)} </span>
+                <span className={LEVEL_CLASSES[l.level] ?? 'text-fg-muted'}>
                   [{LEVEL_LETTER[l.level] ?? l.level}]{l.tag && `[${l.tag}]`}:
                 </span>{' '}
-                <span className={l.level === 'ERROR' || l.level === 'WARN' ? LEVEL_CLASSES[l.level] : 'text-slate-200'}>
+                <span
+                  className={
+                    l.level === 'ERROR' || l.level === 'WARN'
+                      ? LEVEL_CLASSES[l.level]
+                      : 'text-fg'
+                  }
+                >
                   {l.msg}
                 </span>
               </div>
             ))
           )}
         </div>
-
-        <div className="flex items-center justify-between border-t border-slate-800 px-5 py-2 text-[11px] text-slate-500">
-          <span>
-            {lines.length} lines{lines.length >= MAX_LINES ? ` (oldest removed above ${MAX_LINES})` : ''}
-            {isFiltered && ` • ${visible.length} shown`}
-          </span>
-          {!autoScroll && (
-            <button type="button" className="text-aqua-400 hover:text-aqua-300" onClick={() => setAutoScroll(true)}>
-              Jump to latest ↓
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+    </Sheet>
   );
 };
 
-const ToolbarButton: React.FC<{
-  onClick: () => void;
-  active?: boolean;
-  primary?: boolean;
-  disabled?: boolean;
-  children: React.ReactNode;
-}> = ({ onClick, active, primary, disabled, children }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    className={`rounded-lg border px-2.5 py-1 font-semibold transition-all active:scale-95 disabled:opacity-40 ${
-      primary
-        ? 'border-aqua-500 bg-aqua-600/20 text-aqua-100 hover:bg-aqua-600/30'
-        : active
-          ? 'border-amber-500 bg-amber-600/20 text-amber-100'
-          : 'border-slate-700/50 bg-slate-800/50 text-slate-100 hover:border-slate-600 hover:bg-slate-700'
-    }`}
-  >
-    {children}
-  </button>
-);
-
-const StatusPill: React.FC<{ conn: ConnState }> = ({ conn }) => {
-  const map: Record<ConnState['kind'], [string, string]> = {
-    idle: ['Idle', 'bg-slate-700/50 text-slate-300'],
-    resolving: ['Finding device…', 'bg-sky-500/10 text-sky-300'],
-    connecting: ['Connecting…', 'bg-sky-500/10 text-sky-300'],
-    connected: ['Live', 'bg-emerald-500/15 text-emerald-300'],
-    closed: ['Disconnected', 'bg-slate-700/50 text-slate-300'],
-    error: ['Not connected', 'bg-rose-500/15 text-rose-300'],
-  };
-  const [label, cls] = map[conn.kind];
-  return (
-    <span className={`flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
-      {conn.kind === 'connected' && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
-      {label}
-    </span>
-  );
-};
-
-const EmptyState: React.FC<{ conn: ConnState; level: DeviceLogLevel; hasFilter: boolean }> = ({ conn, level, hasFilter }) => {
-  if (hasFilter) return <p className="text-slate-500">No lines match the filter.</p>;
+const EmptyState: React.FC<{
+  conn: ConnState;
+  level: DeviceLogLevel;
+  hasFilter: boolean;
+}> = ({ conn, level, hasFilter }) => {
+  if (hasFilter)
+    return <p className="text-fg-subtle">No lines match the filter.</p>;
   if (conn.kind === 'connected') {
     return (
-      <div className="space-y-1 text-slate-500">
-        <p>Connected. Waiting for log output at {level.replace('_', ' ')} level…</p>
+      <div className="space-y-1 text-fg-subtle">
         <p>
-          If nothing appears, the device firmware may be built to log errors only. Lines below the level set in the
-          firmware are not sent.
+          Connected. Waiting for log output at {level.replace('_', ' ')} level…
+        </p>
+        <p>
+          If nothing appears, the device firmware may be built to log errors
+          only. Lines below the level set in the firmware are not sent.
         </p>
       </div>
     );
   }
-  if (conn.kind === 'resolving' || conn.kind === 'connecting') return <p className="text-slate-500">Connecting to the device…</p>;
+  if (conn.kind === 'resolving' || conn.kind === 'connecting')
+    return <p className="text-fg-subtle">Connecting to the device…</p>;
   return null;
 };
 
@@ -471,7 +586,11 @@ const ConnectionProblem: React.FC<{
   const [key, setKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<{ host: string | null; hostSource: string | null; hasKey: boolean } | null>(null);
+  const [saved, setSaved] = useState<{
+    host: string | null;
+    hostSource: string | null;
+    hasKey: boolean;
+  } | null>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-read saved settings whenever the error changes.
   useEffect(() => {
@@ -483,7 +602,10 @@ const ConnectionProblem: React.FC<{
       .catch(() => setSaved(null));
   }, [deviceId, conn.code]);
 
-  const save = async (update: { manualHost?: string | null; encryptionKey?: string | null }) => {
+  const save = async (update: {
+    manualHost?: string | null;
+    encryptionKey?: string | null;
+  }) => {
     setSaving(true);
     setFormError(null);
     try {
@@ -498,11 +620,11 @@ const ConnectionProblem: React.FC<{
   };
 
   const inputCls =
-    'flex-1 min-w-[12rem] rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-slate-100 placeholder:text-slate-500 focus:border-aqua-500 focus:outline-none';
+    'flex-1 min-w-[12rem] rounded-lg border border-line bg-surface-2 px-2 py-1 text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none';
 
   return (
-    <div className="space-y-2 border-b border-slate-800 bg-rose-500/5 px-5 py-3 text-xs">
-      <p className="text-rose-200">{conn.message}</p>
+    <div className="space-y-2 rounded-lg border border-danger/40 bg-danger-tint px-3 py-3 text-xs">
+      <p className="text-danger-ink">{conn.message}</p>
 
       {conn.needs === 'key' && (
         <form
@@ -520,16 +642,26 @@ const ConnectionProblem: React.FC<{
             placeholder="API encryption key (from the device YAML: api → encryption → key)"
             className={inputCls}
           />
-          <ToolbarButton onClick={() => void save({ encryptionKey: key })} primary disabled={saving || !key.trim()}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void save({ encryptionKey: key })}
+            disabled={saving || !key.trim()}
+          >
             Save key & connect
-          </ToolbarButton>
+          </Button>
         </form>
       )}
 
       {conn.needs === 'remove_key' && (
-        <ToolbarButton onClick={() => void save({ encryptionKey: null })} primary disabled={saving}>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => void save({ encryptionKey: null })}
+          disabled={saving}
+        >
           Remove saved key & connect
-        </ToolbarButton>
+        </Button>
       )}
 
       {conn.needs === 'host' && (
@@ -546,21 +678,33 @@ const ConnectionProblem: React.FC<{
             placeholder="Device IP address or hostname, e.g. 192.168.1.50"
             className={inputCls}
           />
-          <ToolbarButton onClick={() => void save({ manualHost: host })} primary disabled={saving || !host.trim()}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void save({ manualHost: host })}
+            disabled={saving || !host.trim()}
+          >
             Use this address
-          </ToolbarButton>
+          </Button>
           {saved?.hostSource === 'manual' && (
-            <ToolbarButton onClick={() => void save({ manualHost: null })} disabled={saving}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void save({ manualHost: null })}
+              disabled={saving}
+            >
               Use Home Assistant's address
-            </ToolbarButton>
+            </Button>
           )}
         </form>
       )}
 
       {saved?.hasKey && conn.needs !== 'remove_key' && conn.needs !== 'key' && (
-        <p className="text-slate-400">An encryption key is saved for this device.</p>
+        <p className="text-fg-muted">
+          An encryption key is saved for this device.
+        </p>
       )}
-      {formError && <p className="text-rose-300">{formError}</p>}
+      {formError && <p className="text-danger-ink">{formError}</p>}
     </div>
   );
 };

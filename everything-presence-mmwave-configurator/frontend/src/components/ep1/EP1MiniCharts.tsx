@@ -1,4 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import { mdiAccountOutline, mdiRuler, mdiThermometer } from '@mdi/js';
+import { useEffect, useRef, useState } from 'react';
+import { Icon, Panel } from '../primitives';
 
 interface DataPoint {
   value: number;
@@ -13,17 +15,21 @@ interface EP1MiniChartsProps {
   entityUnits?: Record<string, string>;
 }
 
-// Simple sparkline SVG component
-const Sparkline: React.FC<{
+const Sparkline = ({
+  data,
+  colorVar,
+  height = 32,
+  showArea = true,
+}: {
   data: number[];
-  color: string;
+  colorVar: string;
   height?: number;
   showArea?: boolean;
-}> = ({ data, color, height = 32, showArea = true }) => {
+}) => {
   if (data.length < 2) {
     return (
-      <div className="h-8 flex items-center justify-center text-[10px] text-slate-600">
-        Collecting data...
+      <div className="flex h-8 items-center justify-center text-[10px] text-fg-subtle">
+        Collecting data…
       </div>
     );
   }
@@ -36,7 +42,8 @@ const Sparkline: React.FC<{
 
   const points = data.map((value, index) => {
     const x = padding + (index / (data.length - 1)) * (width - padding * 2);
-    const y = height - padding - ((value - min) / range) * (height - padding * 2);
+    const y =
+      height - padding - ((value - min) / range) * (height - padding * 2);
     return `${x},${y}`;
   });
 
@@ -44,196 +51,217 @@ const Sparkline: React.FC<{
   const areaD = `M ${padding},${height - padding} L ${pathD.slice(2)} L ${width - padding},${height - padding} Z`;
 
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      {showArea && (
-        <path d={areaD} fill={color} fillOpacity="0.1" />
-      )}
-      <path d={pathD} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      {/* Current value dot */}
+    <svg
+      width="100%"
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Trend sparkline"
+    >
+      {showArea && <path d={areaD} className={colorVar} fillOpacity="0.15" />}
+      <path
+        d={pathD}
+        fill="none"
+        className={colorVar}
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <circle
         cx={width - padding}
-        cy={height - padding - ((data[data.length - 1] - min) / range) * (height - padding * 2)}
+        cy={
+          height -
+          padding -
+          ((data[data.length - 1] - min) / range) * (height - padding * 2)
+        }
         r="3"
-        fill={color}
+        className={colorVar}
+        fill="currentColor"
       />
     </svg>
   );
 };
 
-// Presence timeline (binary on/off blocks)
-const PresenceTimeline: React.FC<{ data: boolean[]; height?: number }> = ({ data, height = 24 }) => {
+const PresenceTimeline = ({
+  data,
+  height = 24,
+}: {
+  data: { id: number; present: boolean }[];
+  height?: number;
+}) => {
   if (data.length < 2) {
     return (
-      <div className="h-6 flex items-center justify-center text-[10px] text-slate-600">
-        Collecting data...
+      <div className="flex h-6 items-center justify-center text-[10px] text-fg-subtle">
+        Collecting data…
       </div>
     );
   }
 
   const width = 200;
+  const blockWidth = width / data.length;
 
   return (
-    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
-      {data.map((present, index) => {
-        const blockWidth = width / data.length;
-        return (
-          <rect
-            key={index}
-            x={index * blockWidth}
-            y={2}
-            width={blockWidth}
-            height={height - 4}
-            fill={present ? '#10b981' : '#334155'}
-            rx={1}
-          />
-        );
-      })}
+    <svg
+      width="100%"
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="Presence timeline"
+    >
+      {data.map(({ id, present }, index) => (
+        <rect
+          key={id}
+          x={index * blockWidth}
+          y={2}
+          width={blockWidth}
+          height={height - 4}
+          className={present ? 'fill-success' : 'fill-surface-3'}
+          rx={1}
+        />
+      ))}
     </svg>
   );
 };
 
-export const EP1MiniCharts: React.FC<EP1MiniChartsProps> = ({
+export const EP1MiniCharts = ({
   temperature,
   presence,
   distance,
   maxPoints = 60,
   entityUnits,
-}) => {
-  const [collapsed, setCollapsed] = React.useState(false);
+}: EP1MiniChartsProps) => {
   const tempUnit = entityUnits?.temperature || '°C';
 
-  // Store history in refs to persist across renders
   const tempHistory = useRef<DataPoint[]>([]);
-  const presenceHistory = useRef<boolean[]>([]);
+  const presenceHistory = useRef<{ id: number; present: boolean }[]>([]);
+  const presenceId = useRef(0);
   const distanceHistory = useRef<DataPoint[]>([]);
   const lastUpdate = useRef<number>(0);
 
-  // Update trigger for re-render
-  const [, forceUpdate] = React.useState(0);
+  const [, forceUpdate] = useState(0);
 
   useEffect(() => {
     const now = Date.now();
-
-    // Only update once per second to avoid too many data points
     if (now - lastUpdate.current < 1000) return;
     lastUpdate.current = now;
 
-    // Add temperature
     if (temperature !== null) {
       tempHistory.current.push({ value: temperature, timestamp: now });
-      if (tempHistory.current.length > maxPoints) {
-        tempHistory.current.shift();
-      }
+      if (tempHistory.current.length > maxPoints) tempHistory.current.shift();
     }
 
-    // Add presence
-    presenceHistory.current.push(presence);
-    if (presenceHistory.current.length > maxPoints) {
+    presenceHistory.current.push({
+      id: presenceId.current++,
+      present: presence,
+    });
+    if (presenceHistory.current.length > maxPoints)
       presenceHistory.current.shift();
-    }
 
-    // Add distance
     if (distance !== null && distance > 0) {
       distanceHistory.current.push({ value: distance, timestamp: now });
-      if (distanceHistory.current.length > maxPoints) {
+      if (distanceHistory.current.length > maxPoints)
         distanceHistory.current.shift();
-      }
     }
 
     forceUpdate((n) => n + 1);
   }, [temperature, presence, distance, maxPoints]);
 
-  // Extract values for sparklines
   const tempValues = tempHistory.current.map((p) => p.value);
   const distanceValues = distanceHistory.current.map((p) => p.value);
 
-  // Calculate min/max for display
-  const tempMin = tempValues.length > 0 ? Math.min(...tempValues).toFixed(1) : '--';
-  const tempMax = tempValues.length > 0 ? Math.max(...tempValues).toFixed(1) : '--';
-  const distMin = distanceValues.length > 0 ? Math.min(...distanceValues).toFixed(2) : '--';
-  const distMax = distanceValues.length > 0 ? Math.max(...distanceValues).toFixed(2) : '--';
+  const tempMin =
+    tempValues.length > 0 ? Math.min(...tempValues).toFixed(1) : '--';
+  const tempMax =
+    tempValues.length > 0 ? Math.max(...tempValues).toFixed(1) : '--';
+  const distMin =
+    distanceValues.length > 0 ? Math.min(...distanceValues).toFixed(2) : '--';
+  const distMax =
+    distanceValues.length > 0 ? Math.max(...distanceValues).toFixed(2) : '--';
 
   return (
-    <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-4">
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="w-full flex items-center justify-between text-sm font-semibold text-slate-200 hover:text-white transition-colors"
-      >
-        <span>Recent Trends</span>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-500 font-normal">Last {maxPoints}s</span>
-          <span className={`text-slate-500 transition-transform ${collapsed ? '' : 'rotate-180'}`}>▲</span>
-        </div>
-      </button>
-
-      {!collapsed && (
-        <>
-      <div className="space-y-4 mt-3">
-        {/* Temperature Chart */}
+    <Panel
+      variant="section"
+      title="Recent trends"
+      collapsible
+      defaultOpen
+      actions={
+        <span className="text-[10px] font-normal text-fg-subtle">
+          Last {maxPoints}s
+        </span>
+      }
+    >
+      <div className="space-y-4">
         <div>
-          <div className="flex items-center justify-between mb-1">
+          <div className="mb-1 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm">🌡️</span>
-              <span className="text-xs text-slate-400">Temperature</span>
+              <Icon path={mdiThermometer} size={16} className="text-fg-muted" />
+              <span className="text-xs text-fg-muted">Temperature</span>
             </div>
-            <div className="text-[10px] text-slate-500">
-              {tempMin}° - {tempMax}{tempUnit}
+            <div className="text-[10px] text-fg-subtle">
+              {tempMin}° - {tempMax}
+              {tempUnit}
             </div>
           </div>
-          <div className="bg-slate-800/50 rounded-lg p-2">
-            <Sparkline data={tempValues} color="#f97316" height={32} />
+          <div className="rounded-lg bg-surface-2 p-2">
+            <Sparkline data={tempValues} colorVar="text-warning" height={32} />
           </div>
         </div>
 
-        {/* Presence Timeline */}
         <div>
-          <div className="flex items-center justify-between mb-1">
+          <div className="mb-1 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <span className="text-sm">👤</span>
-              <span className="text-xs text-slate-400">Presence</span>
+              <Icon
+                path={mdiAccountOutline}
+                size={16}
+                className="text-fg-muted"
+              />
+              <span className="text-xs text-fg-muted">Presence</span>
             </div>
             <div className="flex items-center gap-2 text-[10px]">
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-sm bg-emerald-500"></span>
-                <span className="text-slate-500">Present</span>
+                <span className="h-2 w-2 rounded-sm bg-success" />
+                <span className="text-fg-subtle">Present</span>
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-sm bg-slate-600"></span>
-                <span className="text-slate-500">Clear</span>
+                <span className="h-2 w-2 rounded-sm bg-surface-3" />
+                <span className="text-fg-subtle">Clear</span>
               </span>
             </div>
           </div>
-          <div className="bg-slate-800/50 rounded-lg p-2">
+          <div className="rounded-lg bg-surface-2 p-2">
             <PresenceTimeline data={presenceHistory.current} height={24} />
           </div>
         </div>
 
-        {/* Distance Chart (if available) */}
         {distanceValues.length > 0 && (
           <div>
-            <div className="flex items-center justify-between mb-1">
+            <div className="mb-1 flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm">📏</span>
-                <span className="text-xs text-slate-400">Distance</span>
+                <Icon path={mdiRuler} size={16} className="text-fg-muted" />
+                <span className="text-xs text-fg-muted">Distance</span>
               </div>
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[10px] text-fg-subtle">
                 {distMin} - {distMax}m
               </div>
             </div>
-            <div className="bg-slate-800/50 rounded-lg p-2">
-              <Sparkline data={distanceValues} color="#06b6d4" height={32} />
+            <div className="rounded-lg bg-surface-2 p-2">
+              <Sparkline
+                data={distanceValues}
+                colorVar="text-accent"
+                height={32}
+              />
             </div>
           </div>
         )}
       </div>
 
-      {/* Data info */}
-      <div className="mt-3 pt-2 border-t border-slate-700/50 text-[10px] text-slate-500 text-center">
+      <div className="mt-3 border-t border-line pt-2 text-center text-[10px] text-fg-subtle">
         {tempHistory.current.length} temperature samples •{' '}
         {presenceHistory.current.length} presence samples
       </div>
-        </>
-      )}
-    </div>
+    </Panel>
   );
 };
