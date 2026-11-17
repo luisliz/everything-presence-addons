@@ -3,6 +3,7 @@ import {
   mdiAccount,
   mdiDotsVertical,
   mdiFloorPlan,
+  mdiHelpCircleOutline,
   mdiStar,
   mdiSync,
   mdiTextBoxSearchOutline,
@@ -17,6 +18,7 @@ import {
   type MenuItem,
   Segmented,
   StatusDot,
+  Tooltip,
 } from '../../components/primitives';
 import type { RoomMode } from '../../router';
 import { NO_ZONES_MESSAGE } from '../../utils/roomNav';
@@ -29,7 +31,12 @@ export interface RoomHeaderProps {
   mode: RoomMode;
   canEditZones: boolean;
   onMode: (mode: RoomMode) => void;
-  presence: { occupied: boolean; targets: number; since: number | null } | null;
+  presence: {
+    occupied: boolean;
+    unknown: boolean;
+    targets: number;
+    since: number | null;
+  } | null;
   isDefault: boolean;
   onAllRooms: () => void;
   onLogs?: () => void;
@@ -120,6 +127,12 @@ export const RoomHeader = ({
         <Badge tone="warning" icon={mdiWifiOff}>
           Offline
         </Badge>
+      ) : presence?.unknown ? (
+        <Tooltip content="The occupancy entity reports no state yet. It updates on the next change or after the device reconnects.">
+          <Badge tone="warning" icon={mdiHelpCircleOutline}>
+            No presence data
+          </Badge>
+        </Tooltip>
       ) : presence?.occupied ? (
         <Badge tone="accent" icon={mdiAccount}>
           Occupied{presence.targets > 0 ? ` ${presence.targets}` : ''}

@@ -2,6 +2,7 @@ import {
   mdiAccount,
   mdiAlertOutline,
   mdiCheckCircleOutline,
+  mdiHelpCircleOutline,
   mdiStar,
   mdiWifiOff,
 } from '@mdi/js';
@@ -51,6 +52,12 @@ const StatusPill = ({
       </Badge>
     );
   if (presence === 'clear') return <Badge>Clear</Badge>;
+  if (presence === 'unknown')
+    return (
+      <Badge tone="warning" icon={mdiHelpCircleOutline}>
+        No presence data
+      </Badge>
+    );
   if (status === 'online') return <Badge tone="success">Online</Badge>;
   return null;
 };

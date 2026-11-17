@@ -1,4 +1,10 @@
-import { mdiAccount, mdiArrowLeft, mdiChevronDown, mdiWifiOff } from '@mdi/js';
+import {
+  mdiAccount,
+  mdiArrowLeft,
+  mdiChevronDown,
+  mdiHelpCircleOutline,
+  mdiWifiOff,
+} from '@mdi/js';
 import { useState } from 'react';
 import type { Route } from '../../router';
 import { Badge, Icon, IconButton, Sheet } from '../primitives';
@@ -6,7 +12,7 @@ import { APP_NAME } from './navItems';
 import { RoomSwitcher } from './RoomSwitcher';
 import { useNavRooms } from './useNavRooms';
 
-export type Presence = 'occupied' | 'clear' | 'offline';
+export type Presence = 'occupied' | 'clear' | 'offline' | 'unknown';
 
 export interface TopBarProps {
   route: Route;
@@ -29,6 +35,10 @@ const PresencePill = ({ presence }: { presence: Presence }) =>
   ) : presence === 'occupied' ? (
     <Badge tone="accent" icon={mdiAccount}>
       Occupied
+    </Badge>
+  ) : presence === 'unknown' ? (
+    <Badge tone="warning" icon={mdiHelpCircleOutline}>
+      No presence data
     </Badge>
   ) : (
     <Badge>Clear</Badge>

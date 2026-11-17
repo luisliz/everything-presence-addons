@@ -371,6 +371,7 @@ export const RoomScreen = ({
             live
               ? {
                   occupied: Boolean(live.presence),
+                  unknown: live.presence === undefined,
                   targets: previewTargets.length,
                   since: stateSince.presence ?? null,
                 }

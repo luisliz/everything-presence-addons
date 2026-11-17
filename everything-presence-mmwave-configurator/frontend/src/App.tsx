@@ -850,9 +850,11 @@ function AppRoutes() {
       ? null
       : liveState.availability?.presence === 'unavailable'
         ? 'offline'
-        : liveState.presence
-          ? 'occupied'
-          : 'clear';
+        : liveState.presence === undefined
+          ? 'unknown'
+          : liveState.presence
+            ? 'occupied'
+            : 'clear';
 
   const saveProgress = useCallback(
     (patch: Partial<AppSettings>) => {

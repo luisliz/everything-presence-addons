@@ -127,6 +127,8 @@ export const LiveRoomPanel = ({
   const { room, liveState, offline, selection, select, stateSince } = frame;
   const now = useNow();
   const occupied = Boolean(liveState?.presence);
+  const presenceUnknown =
+    Boolean(liveState) && liveState?.presence === undefined;
   const sensorFocus = focus === 'sensor';
 
   useEffect(() => {
@@ -194,16 +196,22 @@ export const LiveRoomPanel = ({
                   aria-hidden="true"
                   className={cx(
                     'h-3 w-3 shrink-0 rounded-full',
-                    occupied ? 'bg-accent' : 'border-2 border-fg-subtle',
+                    occupied
+                      ? 'bg-accent'
+                      : presenceUnknown
+                        ? 'border-2 border-warning'
+                        : 'border-2 border-fg-subtle',
                   )}
                 />
               )}
               <output className="text-2xl font-medium text-fg">
                 {offline
                   ? 'Offline'
-                  : liveState
-                    ? stateLabel(occupied, stateSince.presence ?? null, now)
-                    : 'Waiting for data'}
+                  : presenceUnknown
+                    ? 'No presence data'
+                    : liveState
+                      ? stateLabel(occupied, stateSince.presence ?? null, now)
+                      : 'Waiting for data'}
               </output>
             </div>
           )}
