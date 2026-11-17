@@ -2,46 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Dark mode (default) */
+/* Colour tokens hold RGB channels so Tailwind opacity modifiers work in both themes. */
 :root,
 :root.dark {
   color-scheme: dark;
   font-family: 'Inter Tight', 'Inter', system-ui, -apple-system, sans-serif;
-  --bg-primary: #0f172a;
-  --bg-secondary: #1e293b;
-  --bg-tertiary: #334155;
-  --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border-color: #334155;
-  --accent-color: #34d399;
-  --accent-hover: #10b981;
-  background: radial-gradient(circle at 10% 20%, rgba(52, 211, 153, 0.08), transparent 25%),
-    radial-gradient(circle at 80% 0%, rgba(16, 185, 129, 0.08), transparent 20%),
-    var(--bg-primary);
+  --bg: 2 6 23;
+  --surface: 15 23 42;
+  --surface-2: 30 41 59;
+  --surface-3: 51 65 85;
+  --line: 51 65 85;
+  --line-strong: 71 85 105;
+  --fg: 241 245 249;
+  --fg-muted: 148 163 184;
+  --fg-subtle: 100 116 139;
+  --accent: 52 211 153;
+  --accent-fg: 4 36 26;
+  --accent-ink: 110 231 183;
+  --success: 34 197 94;
+  --success-ink: 134 239 172;
+  --warning: 245 158 11;
+  --warning-ink: 252 211 77;
+  --danger: 244 63 94;
+  --danger-ink: 253 164 175;
+  --cv-bg: 11 17 32;
+  --cv-grid: 148 163 184;
+  --cv-grid-major: 148 163 184;
+  --cv-room: 30 41 59;
+  --cv-wall: 203 213 225;
+  --cv-cover: 110 231 183;
+  --cv-ring: 110 231 183;
+  --cv-dim: 148 163 184;
+  --cv-halo: 11 17 32;
+  --zone-regular: 96 165 250;
+  --zone-exclusion: 251 113 133;
+  --zone-entry: 74 222 128;
+  --target-1: 96 165 250;
+  --target-2: 52 211 153;
+  --target-3: 251 191 36;
+  background: rgb(var(--bg));
 }
 
-/* Light mode */
 :root.light {
   color-scheme: light;
-  --bg-primary: #f8fafc;
-  --bg-secondary: #f1f5f9;
-  --bg-tertiary: #e2e8f0;
-  --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --border-color: #cbd5e1;
-  --accent-color: #10b981;
-  --accent-hover: #059669;
-  background: radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.05), transparent 25%),
-    radial-gradient(circle at 80% 0%, rgba(52, 211, 153, 0.05), transparent 20%),
-    var(--bg-primary);
+  --bg: 248 250 252;
+  --surface: 255 255 255;
+  --surface-2: 241 245 249;
+  --surface-3: 226 232 240;
+  --line: 226 232 240;
+  --line-strong: 203 213 225;
+  --fg: 15 23 42;
+  --fg-muted: 71 85 105;
+  --fg-subtle: 100 116 139;
+  --accent: 4 120 87;
+  --accent-fg: 255 255 255;
+  --accent-ink: 4 120 87;
+  --success: 22 163 74;
+  --success-ink: 21 128 61;
+  --warning: 217 119 6;
+  --warning-ink: 146 64 14;
+  --danger: 225 29 72;
+  --danger-ink: 190 18 60;
+  --cv-bg: 248 250 252;
+  --cv-grid: 100 116 139;
+  --cv-grid-major: 100 116 139;
+  --cv-room: 255 255 255;
+  --cv-wall: 51 65 85;
+  --cv-cover: 4 120 87;
+  --cv-ring: 4 120 87;
+  --cv-dim: 71 85 105;
+  --cv-halo: 248 250 252;
+  --zone-regular: 37 99 235;
+  --zone-exclusion: 225 29 72;
+  --zone-entry: 22 163 74;
+  --target-1: 37 99 235;
+  --target-2: 4 120 87;
+  --target-3: 180 83 9;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  color: var(--text-primary);
+  color: rgb(var(--fg));
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 

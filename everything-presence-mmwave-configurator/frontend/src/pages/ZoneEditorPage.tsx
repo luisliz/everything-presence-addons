@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import {
-  fetchDevices,
-  fetchProfiles,
   fetchZoneAvailability,
   fetchZoneBackups,
   ingressAware,
   restoreZoneBackup,
 } from '../api/client';
-import { fetchRooms, updateRoom } from '../api/rooms';
+import { updateRoom } from '../api/rooms';
+import { useAppData } from '../contexts/AppDataContext';
+import { navigate } from '../router';
 import { ZoneCanvas } from '../components/ZoneCanvas';
 import {
   pushZonesToDevice,
@@ -21,8 +21,6 @@ import {
 import { validateZones } from '../api/validate';
 import { getZoneLabels, saveZoneLabels } from '../api/deviceMappings';
 import {
-  DiscoveredDevice,
-  DeviceProfile,
   RoomConfig,
   ZoneRect,
   ZonePolygon,
@@ -59,7 +57,6 @@ import {
 
 interface ZoneEditorPageProps {
   onBack?: () => void;
-  onNavigate?: (view: 'wizard' | 'zoneEditor' | 'roomBuilder' | 'settings' | 'liveDashboard') => void;
   initialRoomId?: string | null;
   initialProfileId?: string | null;
   onWizardZonesReady?: () => void;
@@ -72,23 +69,19 @@ interface ZoneEditorPageProps {
     speed: number | null;
     angle: number | null;
   }>;
-  onRoomChange?: (roomId: string | null, profileId: string | null) => void;
 }
 
-type MobileZoneSheet = 'navigation' | 'zoom' | null;
+type MobileZoneSheet = 'zoom' | null;
 
 export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
   onBack,
-  onNavigate,
   initialRoomId,
   initialProfileId,
   onWizardZonesReady,
   liveState: propLiveState,
   targetPositions: propTargetPositions = [],
-  onRoomChange,
 }) => {
-  const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
-  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
+  const { devices, profiles, rooms: appRooms, loading: appLoading, error: appError, updateRoom: storeRoom } = useAppData();
   const [rooms, setRooms] = useState<RoomConfig[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null);
@@ -110,7 +103,6 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
   const [entryZonesAvailable, setEntryZonesAvailable] = useState<boolean | null>(null);
   const [isDraggingZone, setIsDraggingZone] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showNavMenu, setShowNavMenu] = useState(false);
   const [activeMobileSheet, setActiveMobileSheet] = useState<MobileZoneSheet>(null);
   // Polygon mode state
   const [polygonModeStatus, setPolygonModeStatus] = useState<PolygonModeStatus>({
@@ -265,13 +257,6 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
   // Zone slot counts for the selected device. A profile that declares a zone
   // type unsupported resolves to zero slots, so an EP1 offers none at all.
   const zoneLimits = useMemo(() => resolveZoneLimits(selectedProfile), [selectedProfile]);
-
-  // Only rooms whose sensor can actually hold zones may be edited here; an EP1
-  // room must not be reachable through the room selector either.
-  const zoneCapableRooms = useMemo(
-    () => rooms.filter((room) => roomSupportsZoneEditing(room, profiles)),
-    [rooms, profiles],
-  );
 
   // Generate all possible zone slots based on profile limits
   const allPossibleZones = useMemo(() => {
@@ -440,39 +425,29 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
   }, [warning]);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [deviceRes, profileRes, roomRes] = await Promise.all([fetchDevices(), fetchProfiles(), fetchRooms()]);
-        setDevices(deviceRes.devices);
-        setProfiles(profileRes.profiles);
-        setRooms(roomRes.rooms);
+    if (appLoading) return;
+    if (appError) setError(appError);
+    setRooms(appRooms);
 
-        // Never open on a room whose device has no zones (EP1): the editor has
-        // nothing to show for it, and it must not be reachable by defaulting.
-        const editableRooms = roomRes.rooms.filter((room) =>
-          roomSupportsZoneEditing(room, profileRes.profiles),
-        );
+    // Never open on a room whose device has no zones (EP1): the editor has
+    // nothing to show for it, and it must not be reachable by defaulting.
+    const editableRooms = appRooms.filter((room) => roomSupportsZoneEditing(room, profiles));
 
-        const requestedRoom = initialRoomId
-          ? editableRooms.find((r) => r.id === initialRoomId) ?? null
-          : null;
-        const initialRoom = requestedRoom || editableRooms[0] || null;
-        if (initialRoom) {
-          setSelectedRoomId(initialRoom.id);
-          setSelectedZoneId(initialRoom.zones?.[0]?.id ?? null);
-          if (initialRoom.profileId) setSelectedProfileId(initialRoom.profileId);
-        }
+    const requestedRoom = initialRoomId
+      ? editableRooms.find((r) => r.id === initialRoomId) ?? null
+      : null;
+    const initialRoom = requestedRoom || editableRooms[0] || null;
+    if (initialRoom) {
+      setSelectedRoomId(initialRoom.id);
+      setSelectedZoneId(initialRoom.zones?.[0]?.id ?? null);
+      if (initialRoom.profileId) setSelectedProfileId(initialRoom.profileId);
+    }
 
-        if (!initialRoom?.profileId && !selectedProfileId && profileRes.profiles.length > 0) {
-          setSelectedProfileId(initialProfileId ?? profileRes.profiles[0].id);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      }
-    };
-    load();
-    // Note: selectedRoomId and selectedProfileId intentionally excluded - this is initialization only.
-  }, [initialProfileId, initialRoomId]);
+    if (!initialRoom?.profileId && !selectedProfileId && profiles.length > 0) {
+      setSelectedProfileId(initialProfileId ?? profiles[0].id);
+    }
+    // Initialisation per route room only: re-seeding on every store change would drop unsaved zone edits.
+  }, [appLoading, initialProfileId, initialRoomId]);
 
   useEffect(() => {
     // Only run when room ID actually changes (not on every render)
@@ -559,6 +534,7 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
         setRooms((prev) => prev.map((r) =>
           r.id === selectedRoom.id ? updatedRoom : r
         ));
+        storeRoom(updatedRoom);
 
         // Persist to add-on storage to keep it in sync with device (coordinates only, labels in device mapping)
         await updateRoom(selectedRoom.id, { zones: deviceZones });
@@ -1073,6 +1049,7 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
       const result = await updateRoom(selectedRoom.id, { metadata });
       if (saveSeq === ceilingSliceSaveSeqRef.current) {
         setRooms((prev) => prev.map((room) => (room.id === selectedRoom.id ? result.room : room)));
+        storeRoom(result.room);
       }
     } catch (err) {
       pendingCeilingSliceConfigRef.current = config;
@@ -1369,6 +1346,7 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
       if (!polygonModeStatus.enabled) {
         const result = await updateRoom(selectedRoom.id, selectedRoom);
         setRooms((prev) => prev.map((r) => (r.id === selectedRoom.id ? result.room : r)));
+        storeRoom(result.room);
       }
 
       // Save zone labels to device mapping (for both rectangle and polygon zones)
@@ -1476,17 +1454,6 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
     }
   }, [isMobileCanvas]);
 
-  const handleRoomSelection = useCallback((roomId: string | null) => {
-    const room = rooms.find((candidate) => candidate.id === roomId);
-    // Switching sideways onto a zone-less device (EP1) is not an edit this page
-    // can make sense of, so the selection is refused outright.
-    if (room && !roomSupportsZoneEditing(room, profiles)) return;
-    setSelectedRoomId(roomId);
-    setSelectedZoneId(room?.zones?.[0]?.id ?? null);
-    if (room?.profileId) setSelectedProfileId(room.profileId);
-    onRoomChange?.(roomId, room?.profileId ?? selectedProfileId);
-  }, [onRoomChange, profiles, rooms, selectedProfileId]);
-
   const toggleMobileZoneList = () => {
     setShowSettings(false);
     setActiveMobileSheet(null);
@@ -1506,7 +1473,7 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-950 overflow-hidden">
+    <div className="absolute inset-0 bg-slate-950 overflow-hidden">
       {/* Error Toast */}
       {error && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 max-w-lg rounded-xl border border-rose-500/50 bg-rose-500/10 backdrop-blur px-6 py-3 text-rose-100 shadow-xl animate-in slide-in-from-top-4 fade-in">
@@ -1620,7 +1587,7 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
 
       <div className="md:hidden">
         <CanvasTopBar
-          left={onBack && !onNavigate ? (
+          left={onBack ? (
             <button
               type="button"
               onClick={onBack}
@@ -1628,28 +1595,8 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
             >
               Back
             </button>
-          ) : onNavigate ? (
-            <button
-              type="button"
-              onClick={() => setActiveMobileSheet('navigation')}
-              className="min-h-[40px] rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm font-semibold text-slate-100"
-            >
-              Menu
-            </button>
           ) : null}
-          title={zoneCapableRooms.length > 0 ? (
-            <select
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm font-semibold text-slate-100 focus:border-aqua-500 focus:outline-none focus:ring-1 focus:ring-aqua-500/50"
-              value={selectedRoomId ?? ''}
-              onChange={(event) => handleRoomSelection(event.target.value || null)}
-            >
-              {zoneCapableRooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.name}
-                </option>
-              ))}
-            </select>
-          ) : 'Zone Editor'}
+          title="Zone Editor"
           right={(
             <button
               type="button"
@@ -1664,76 +1611,13 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
       </div>
 
       {/* Navigation (top left) */}
-      {onBack && !onNavigate && (
+      {onBack && (
         <button
           onClick={onBack}
           className="absolute top-6 left-6 z-40 hidden group rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-lg transition-all hover:border-slate-600 hover:bg-slate-800 hover:shadow-xl active:scale-95 md:block"
         >
           <span className="inline-block transition-transform group-hover:-translate-x-0.5">←</span> Back
         </button>
-      )}
-
-      {onNavigate && (
-        <div className={`absolute top-6 left-6 hidden md:block ${showNavMenu ? 'z-[60]' : 'z-40'}`}>
-          <button
-            onClick={() => setShowNavMenu(!showNavMenu)}
-            className="group rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-lg transition-all hover:border-slate-600 hover:bg-slate-800 hover:shadow-xl active:scale-95"
-          >
-            <span className="inline-block transition-transform group-hover:rotate-90">☰</span> Menu
-          </button>
-
-          {showNavMenu && (
-            <>
-              {/* Backdrop to close menu */}
-              <div
-                className="fixed inset-0 z-30"
-                onClick={() => setShowNavMenu(false)}
-              />
-
-              {/* Menu dropdown */}
-              <div className="absolute top-14 left-0 z-50 min-w-[200px] rounded-xl border border-slate-700/50 bg-slate-900/95 backdrop-blur shadow-2xl overflow-hidden">
-                <div className="p-2 space-y-1">
-                  <button
-                    onClick={() => {
-                      onNavigate('liveDashboard');
-                      setShowNavMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    📡 Live Dashboard
-                  </button>
-                  <button
-                    onClick={() => {
-                      onNavigate('wizard');
-                      setShowNavMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    ➕ Add Device
-                  </button>
-                  <button
-                    onClick={() => {
-                      onNavigate('roomBuilder');
-                      setShowNavMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    🏠 Room Builder
-                  </button>
-                  <button
-                    onClick={() => {
-                      onNavigate('settings');
-                      setShowNavMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    ⚙️ Settings
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
       )}
 
       {/* Floating Action Button (top right) */}
@@ -1748,14 +1632,12 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
           )}
           {saving ? 'Saving Zones...' : 'Save Zones'}
         </button>
-        {onNavigate && (
-          <button
-            onClick={() => onNavigate('settings')}
-            className="rounded-xl border border-slate-700/60 bg-slate-900/90 px-4 py-2 text-xs font-semibold text-slate-200 shadow-lg transition-all hover:border-slate-600 hover:bg-slate-800 active:scale-95"
-          >
-            Zone Backups
-          </button>
-        )}
+        <button
+          onClick={() => navigate({ name: 'settings', section: 'backups' })}
+          className="rounded-xl border border-slate-700/60 bg-slate-900/90 px-4 py-2 text-xs font-semibold text-slate-200 shadow-lg transition-all hover:border-slate-600 hover:bg-slate-800 active:scale-95"
+        >
+          Zone Backups
+        </button>
       </div>
 
       {/* Canvas Content - Full Page */}
@@ -1991,24 +1873,6 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
               return null;
             }}
           />
-
-          {/* Floating Room Selector (top center) */}
-          <div className="absolute top-6 left-1/2 z-40 hidden -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm text-slate-200 shadow-xl md:flex">
-            <span className="text-slate-400 font-medium">Room:</span>
-            <select
-              className="rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-slate-100 transition-colors focus:border-aqua-500 focus:ring-1 focus:ring-aqua-500/50 focus:outline-none font-medium"
-              value={selectedRoomId ?? ''}
-              onChange={(e) => {
-                handleRoomSelection(e.target.value || null);
-              }}
-            >
-              {zoneCapableRooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </div>
 
           {/* Zone List Toggle Button (left side) */}
           <div className="absolute top-24 left-6 z-40 hidden flex-col gap-2 md:flex">
@@ -2683,59 +2547,6 @@ export const ZoneEditorPage: React.FC<ZoneEditorPageProps> = ({
           </div>
         </div>
       )}
-
-      <CanvasMobileSheet
-        open={activeMobileSheet === 'navigation'}
-        title="Menu"
-        onClose={() => setActiveMobileSheet(null)}
-      >
-        <div className="space-y-2">
-          {onNavigate && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate('liveDashboard');
-                  setActiveMobileSheet(null);
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Live Dashboard
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate('wizard');
-                  setActiveMobileSheet(null);
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Add Device
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate('roomBuilder');
-                  setActiveMobileSheet(null);
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Room Builder
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate('settings');
-                  setActiveMobileSheet(null);
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Settings
-              </button>
-            </>
-          )}
-        </div>
-      </CanvasMobileSheet>
 
       <CanvasMobileSheet
         open={activeMobileSheet === 'zoom'}

@@ -1653,7 +1653,7 @@ export const WizardPage: React.FC<WizardPageProps> = ({
 
     if (currentStep === 'outline' && showOutlineShapeChoice) {
       return (
-        <div className="fixed inset-0 flex items-center justify-center overflow-y-auto bg-slate-950 p-4">
+        <div className="absolute inset-0 flex items-center justify-center overflow-y-auto bg-slate-950 p-4">
           <BasicRoomShapesPicker
             units={units}
             onApply={handleApplyWizardShape}
@@ -1669,7 +1669,7 @@ export const WizardPage: React.FC<WizardPageProps> = ({
     }
 
     return (
-      <div className="fixed inset-0 bg-slate-950 overflow-hidden">
+      <div className="absolute inset-0 bg-slate-950 overflow-hidden">
         {/* Welcome Popup */}
         {showWelcomePopup && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">

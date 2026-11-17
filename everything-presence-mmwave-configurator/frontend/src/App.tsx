@@ -1,49 +1,39 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { fetchDevices, fetchProfiles, fetchSettings, updateSettings, ingressAware } from './api/client';
-import { createRoom, fetchRooms } from './api/rooms';
-import { DiscoveredDevice, DeviceProfile, RoomConfig, LiveState, EntityMappings } from './api/types';
-import { roomSupportsZoneEditing } from './utils/zoneCapabilities';
-import { ZoneEditorPage } from './pages/ZoneEditorPage';
-import { RoomBuilderPage } from './pages/RoomBuilderPage';
-import { WizardPage } from './pages/WizardPage';
-import { LiveTrackingPage } from './pages/LiveTrackingPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { DeviceMappingsProvider } from './contexts/DeviceMappingsContext';
+import { mdiLoading } from '@mdi/js';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ingressAware } from './api/client';
+import { createRoom } from './api/rooms';
+import type { AppSettings, LiveState } from './api/types';
 import { DebugRecordingPill } from './components/DebugRecordingPill';
+import { Button, Icon, Note, ToastProvider, useToast } from './components/primitives';
+import { AppShell } from './components/shell/AppShell';
+import type { Presence } from './components/shell/TopBar';
+import { AppDataProvider, useAppData } from './contexts/AppDataContext';
+import { DeviceMappingsProvider } from './contexts/DeviceMappingsContext';
 import {
   installDebugCapture,
   recordNavigation,
   recordWebSocketEvent,
   resumeDebugCaptureIfActive,
 } from './debug/debugCapture';
+import { LiveTrackingPage } from './pages/LiveTrackingPage';
+import { RoomBuilderPage } from './pages/RoomBuilderPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { WizardPage } from './pages/WizardPage';
+import { ZoneEditorPage } from './pages/ZoneEditorPage';
+import { homeRoute, resolveRedirect, type Route, roomRoute, useHash, useRoute } from './router';
+import { NO_ZONES_MESSAGE } from './utils/roomNav';
+import { roomSupportsZoneEditing } from './utils/zoneCapabilities';
 
-const Card = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="glass-card p-6">
-    <div className="mb-3 text-sm font-semibold text-aqua-500">{title}</div>
-    <div className="space-y-2 text-slate-200">{children}</div>
-  </div>
-);
-
-function App() {
-  const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
-  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
-  const [rooms, setRooms] = useState<RoomConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [newRoomName, setNewRoomName] = useState('');
-  const [newRoomDeviceId, setNewRoomDeviceId] = useState<string | undefined>(undefined);
-  const [savingRoom, setSavingRoom] = useState(false);
+function AppRoutes() {
+  const { rooms, devices, profiles, settings, loading, error: loadError, refresh, addRoom, updateRoom: storeRoom, updateSettings } = useAppData();
+  const [route, navigate] = useRoute();
+  const hash = useHash();
+  const toast = useToast();
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const [wizardCompleted, setWizardCompleted] = useState<boolean>(false);
-  const [wizardStep, setWizardStep] = useState<string>('device');
-  const [wizardDeviceId, setWizardDeviceId] = useState<string | null>(null);
-  const [wizardProfileId, setWizardProfileId] = useState<string | null>(null);
-  const [wizardOutlineDone, setWizardOutlineDone] = useState<boolean>(false);
-  const [wizardPlacementDone, setWizardPlacementDone] = useState<boolean>(false);
-  const [wizardZonesReady, setWizardZonesReady] = useState<boolean>(false);
-  const [view, setView] = useState<'dashboard' | 'wizard' | 'zoneEditor' | 'roomBuilder' | 'liveTracking' | 'settings'>('dashboard');
+  const [, setError] = useState<string | null>(null);
   const [liveState, setLiveState] = useState<LiveState | null>(null);
+  const lastRoomRouteRef = useRef<Route | null>(null);
 
   // Debug capture hooks are inert until a debug session is active; resume one
   // that was started before this page load.
@@ -53,63 +43,37 @@ function App() {
   }, []);
 
   useEffect(() => {
-    recordNavigation(view);
-  }, [view]);
+    recordNavigation(hash);
+  }, [hash]);
+
+  const canEditZones = useCallback(
+    (roomId: string) => roomSupportsZoneEditing(rooms.find((room) => room.id === roomId), profiles),
+    [profiles, rooms],
+  );
+  const home = useCallback(
+    () => homeRoute({ roomIds: rooms.map((room) => room.id), defaultRoomId: settings?.defaultRoomId, wizardCompleted: Boolean(settings?.wizardCompleted) }),
+    [rooms, settings?.defaultRoomId, settings?.wizardCompleted],
+  );
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        const [deviceRes, profileRes, roomsRes, settingsRes] = await Promise.all([
-          fetchDevices(),
-          fetchProfiles(),
-          fetchRooms(),
-          fetchSettings(),
-        ]);
-        setDevices(deviceRes.devices);
-        setProfiles(profileRes.profiles);
-        setRooms(roomsRes.rooms);
-        setWizardCompleted(settingsRes.settings.wizardCompleted);
-        setWizardStep(settingsRes.settings.wizardStep ?? 'device');
-        setWizardDeviceId(settingsRes.settings.wizardDeviceId ?? null);
-        setWizardProfileId(settingsRes.settings.wizardProfileId ?? null);
-        setWizardOutlineDone(Boolean(settingsRes.settings.outlineDone));
-        setWizardPlacementDone(Boolean(settingsRes.settings.placementDone));
-        setWizardZonesReady(Boolean(settingsRes.settings.zonesReady));
-        const defaultRoomId =
-          typeof settingsRes.settings.defaultRoomId === 'string' ? settingsRes.settings.defaultRoomId : null;
-        if (!selectedRoomId && defaultRoomId) {
-          const defaultRoom = roomsRes.rooms.find((room) => room.id === defaultRoomId);
-          if (defaultRoom) {
-            setSelectedRoomId(defaultRoomId);
-            if (defaultRoom.profileId) {
-              setSelectedProfileId(defaultRoom.profileId);
-            }
-          } else {
-            updateSettings({ defaultRoomId: null }).catch(() => null);
-          }
-        }
-        // Auto-launch wizard only on first run (when not yet completed AND no rooms exist)
-        // If rooms exist, assume wizard was completed in a previous version
-        if (!settingsRes.settings.wizardCompleted && roomsRes.rooms.length === 0) {
-          setView('wizard');
-        } else if (!settingsRes.settings.wizardCompleted && roomsRes.rooms.length > 0) {
-          // Mark wizard as completed if rooms exist but flag wasn't set
-          updateSettings({ wizardCompleted: true }).catch(() => null);
-          setWizardCompleted(true);
-        }
-        if (!selectedProfileId && profileRes.profiles.length > 0) {
-          setSelectedProfileId(profileRes.profiles[0].id);
-        }
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, []);
+    if (loading || !settings) return;
+    const redirect = resolveRedirect(hash, {
+      roomIds: rooms.map((room) => room.id),
+      defaultRoomId: settings.defaultRoomId,
+      wizardCompleted: settings.wizardCompleted,
+      canEditZones,
+    });
+    if (!redirect) return;
+    if (redirect.notice === 'missing-room') toast.show('That room no longer exists', { tone: 'warning' });
+    if (redirect.notice === 'no-zones') toast.show(NO_ZONES_MESSAGE, { tone: 'info' });
+    navigate(redirect.route, { replace: true });
+  }, [canEditZones, hash, loading, navigate, rooms, settings, toast]);
+
+  useEffect(() => {
+    if (route.name !== 'room') return;
+    lastRoomRouteRef.current = route;
+    setSelectedRoomId(route.roomId);
+  }, [route]);
 
   // Memoize selected room and profile to create stable references
   const selectedRoom = useMemo(
@@ -121,23 +85,10 @@ function App() {
     [profiles, selectedProfileId]
   );
 
-  // The Zone Editor is gated on the *room's* device, not on the profile picker:
-  // a room whose sensor cannot detect zones (the Everything Presence One) has
-  // nothing to configure there. Guarding the view itself rather than each menu
-  // item means no entry point - dashboard, Room Builder, wizard or a stale
-  // view - can slip past the restriction. It is judged on the room's own
-  // profile only, so a room not yet bound to a device profile is never blocked
-  // by whatever the profile picker happens to be showing.
-  const zoneEditingSupported = useMemo(
-    () => roomSupportsZoneEditing(selectedRoom, profiles),
-    [profiles, selectedRoom]
-  );
-
   useEffect(() => {
-    if (view === 'zoneEditor' && !zoneEditingSupported) {
-      setView('dashboard');
-    }
-  }, [view, zoneEditingSupported]);
+    if (selectedRoom?.profileId) setSelectedProfileId(selectedRoom.profileId);
+    else setSelectedProfileId((current) => current ?? profiles[0]?.id ?? null);
+  }, [profiles, selectedRoom?.profileId]);
 
   const refreshLiveState = React.useCallback(async () => {
     if (!selectedRoom || !selectedRoom.deviceId || !selectedProfile) {
@@ -597,75 +548,93 @@ function App() {
       });
   }, [liveState, deviceToRoom]);
 
-  const handleCreateRoom = async () => {
-    if (!newRoomName.trim()) {
-      setError('Room name is required');
-      return;
-    }
-    try {
-      setSavingRoom(true);
-      // Find the selected device to get its entityNamePrefix
-      const selectedDevice = newRoomDeviceId ? devices.find(d => d.id === newRoomDeviceId) : undefined;
-      const result = await createRoom({
-        name: newRoomName.trim(),
-        deviceId: newRoomDeviceId || undefined,
-        entityNamePrefix: selectedDevice?.entityNamePrefix,
-        profileId: selectedProfileId || undefined,
-        units: 'metric',
-        zones: [],
-      });
-      setRooms((prev) => [...prev, result.room]);
-      setSelectedRoomId(result.room.id);
-      setNewRoomName('');
-      setNewRoomDeviceId(undefined);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create room');
-    } finally {
-      setSavingRoom(false);
-    }
-  };
+  const presence: Presence | null = !selectedRoom?.deviceId || !liveState
+    ? null
+    : liveState.availability?.presence === 'unavailable'
+      ? 'offline'
+      : liveState.presence
+        ? 'occupied'
+        : 'clear';
 
-  const dashboard = (
-    <LiveTrackingPage
-      onNavigate={(view) => {
-        // Reset wizard step when navigating to Add Device
-        if (view === 'wizard') {
-          setWizardStep('device');
-          updateSettings({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null }).catch(() => null);
-        }
-        setView(view);
-      }}
-      initialRoomId={selectedRoomId}
-      initialProfileId={selectedProfileId}
-      liveState={liveState}
-      targetPositions={targetPositions}
-      onRoomChange={(roomId, profileId) => {
-        setSelectedRoomId(roomId);
-        setSelectedProfileId(profileId);
-      }}
-    />
+  const saveProgress = useCallback(
+    (patch: Partial<AppSettings>) => {
+      updateSettings(patch).catch(() => null);
+    },
+    [updateSettings],
   );
 
-  return (
-    <DeviceMappingsProvider>
-      <div className="min-h-screen bg-slate-950 text-slate-100 p-4">
-        <main>
-          {view === 'dashboard' && dashboard}
-        {view === 'wizard' && (
+  const startWizard = useCallback(() => {
+    saveProgress({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null });
+    navigate({ name: 'wizard' });
+  }, [navigate, saveProgress]);
+
+  const openRoom = (roomId: string | null, mode: 'live' | 'zones' | 'build') => {
+    const target = roomId ?? selectedRoomId;
+    navigate(target ? roomRoute(target, mode) : home());
+  };
+
+  const leaveSettings = () => navigate(lastRoomRouteRef.current ?? home());
+
+  const renderScreen = () => {
+    if (loading) {
+      return (
+        <div className="flex h-full items-center justify-center text-fg-muted" role="status">
+          <Icon path={mdiLoading} size={24} className="animate-spin" label="Loading" />
+        </div>
+      );
+    }
+    if (loadError && rooms.length === 0) {
+      return (
+        <div className="mx-auto max-w-md p-6">
+          <Note tone="danger" title="Could not load your rooms" actions={<Button size="sm" onClick={() => void refresh()}>Retry</Button>}>
+            {loadError}
+          </Note>
+        </div>
+      );
+    }
+    switch (route.name) {
+      case 'room': {
+        if (!rooms.some((room) => room.id === route.roomId)) return null;
+        const shared = { initialRoomId: route.roomId, initialProfileId: selectedProfileId, liveState, targetPositions };
+        if (route.mode === 'zones') {
+          return (
+            <ZoneEditorPage
+              {...shared}
+              onWizardZonesReady={() => {
+                saveProgress({ zonesReady: true, wizardStep: 'finish' });
+              }}
+            />
+          );
+        }
+        if (route.mode === 'build') {
+          return (
+            <RoomBuilderPage
+              {...shared}
+              onWizardProgress={(p) => {
+                if (p.outlineDone) saveProgress({ outlineDone: true, wizardStep: 'placement' });
+                if (p.placementDone) saveProgress({ placementDone: true, wizardStep: 'zones' });
+              }}
+            />
+          );
+        }
+        return <LiveTrackingPage {...shared} />;
+      }
+      case 'settings':
+        return <SettingsPage section={route.section} onBack={leaveSettings} />;
+      case 'rooms':
+        return <SettingsPage section="rooms" onBack={leaveSettings} />;
+      case 'wizard':
+        return (
+          <div className="p-4">
           <WizardPage
             devices={devices}
             profiles={profiles}
             rooms={rooms}
-            selectedDeviceId={wizardDeviceId ?? newRoomDeviceId}
-            selectedProfileId={wizardProfileId ?? selectedProfileId}
+            selectedDeviceId={settings?.wizardDeviceId ?? undefined}
+            selectedProfileId={settings?.wizardProfileId ?? selectedProfileId}
             onBack={() => {
-              // Reset wizard when going back
-              setWizardStep('device');
-              setWizardDeviceId(null);
-              setWizardProfileId(null);
-              updateSettings({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null }).catch(() => null);
-              setView('dashboard');
+              saveProgress({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null });
+              navigate(home());
             }}
             onCreateRoom={async (name, deviceId, profileId, entityMappings) => {
               // Find the selected device to get its entityNamePrefix (legacy fallback)
@@ -679,7 +648,7 @@ function App() {
                 units: 'metric',
                 zones: [],
               });
-              setRooms((prev) => [...prev, result.room]);
+              addRoom(result.room);
               return result.room;
             }}
             onSelectRoom={(roomId, profileId) => {
@@ -687,155 +656,63 @@ function App() {
               if (profileId) setSelectedProfileId(profileId);
             }}
             onGoRoomBuilder={(roomId, profileId) => {
-              setSelectedRoomId(roomId);
               if (profileId) setSelectedProfileId(profileId);
-              setView('roomBuilder');
+              openRoom(roomId, 'build');
             }}
             onGoZoneEditor={(roomId, profileId) => {
-              setSelectedRoomId(roomId);
               if (profileId) setSelectedProfileId(profileId);
-              // The guard above still has the final say; sending an unsupported
-              // room here simply lands on the dashboard.
-              setView('zoneEditor');
+              // The router redirect has the final say: a room without zones lands on Live.
+              openRoom(roomId, 'zones');
             }}
-            onRoomUpdate={(updatedRoom) => {
-              setRooms((prev) => prev.map((r) => (r.id === updatedRoom.id ? updatedRoom : r)));
-            }}
+            onRoomUpdate={storeRoom}
             onComplete={() => {
-              updateSettings({ wizardCompleted: true, wizardDeviceId: null, wizardProfileId: null }).catch(() => null);
-              setWizardCompleted(true);
-              setWizardStep('finish');
-              setWizardDeviceId(null);
-              setWizardProfileId(null);
-              setView('dashboard');
+              saveProgress({ wizardCompleted: true, wizardStep: 'finish', wizardDeviceId: null, wizardProfileId: null });
+              openRoom(null, 'live');
             }}
-            initialStep={wizardStep}
+            initialStep={settings?.wizardStep ?? 'device'}
             onStepChange={(key) => {
-              setWizardStep(key);
-              updateSettings({ wizardStep: key }).catch(() => null);
+              saveProgress({ wizardStep: key });
             }}
             onSelectionChange={(deviceId, profileId) => {
-              setWizardDeviceId(deviceId);
-              setWizardProfileId(profileId);
-              updateSettings({ wizardDeviceId: deviceId, wizardProfileId: profileId }).catch(() => null);
+              saveProgress({ wizardDeviceId: deviceId, wizardProfileId: profileId });
             }}
-            outlineDone={wizardOutlineDone}
-            placementDone={wizardPlacementDone}
-            zonesReady={wizardZonesReady}
+            outlineDone={Boolean(settings?.outlineDone)}
+            placementDone={Boolean(settings?.placementDone)}
+            zonesReady={Boolean(settings?.zonesReady)}
             setOutlineDone={(val) => {
-              setWizardOutlineDone(val);
-              updateSettings({ outlineDone: val }).catch(() => null);
+              saveProgress({ outlineDone: val });
             }}
             setPlacementDone={(val) => {
-              setWizardPlacementDone(val);
-              updateSettings({ placementDone: val }).catch(() => null);
+              saveProgress({ placementDone: val });
             }}
             setZonesReady={(val) => {
-              setWizardZonesReady(val);
-              updateSettings({ zonesReady: val }).catch(() => null);
+              saveProgress({ zonesReady: val });
             }}
             liveState={liveState}
             targetPositions={targetPositions}
           />
-        )}
-        {view === 'zoneEditor' && !zoneEditingSupported && dashboard}
-        {view === 'zoneEditor' && zoneEditingSupported && (
-          <ZoneEditorPage
-            onNavigate={(targetView) => {
-              if (targetView === 'wizard') {
-                setWizardStep('device');
-                updateSettings({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null }).catch(() => null);
-              }
-              // Map 'liveDashboard' to 'dashboard' for the main live tracking view
-              const mappedView = targetView === 'liveDashboard' ? 'dashboard' : targetView;
-              setView(mappedView);
-            }}
-            initialRoomId={selectedRoomId}
-            initialProfileId={selectedProfileId}
-            onWizardZonesReady={() => {
-              setWizardZonesReady(true);
-              setWizardStep('finish');
-              updateSettings({ zonesReady: true, wizardStep: 'finish' }).catch(() => null);
-            }}
-            liveState={liveState}
-            targetPositions={targetPositions}
-            onRoomChange={(roomId, profileId) => {
-              setSelectedRoomId(roomId);
-              setSelectedProfileId(profileId);
-            }}
-          />
-        )}
-        {view === 'roomBuilder' && (
-          <RoomBuilderPage
-            onNavigate={(targetView) => {
-              if (targetView === 'wizard') {
-                setWizardStep('device');
-                updateSettings({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null }).catch(() => null);
-              }
-              // Map 'liveDashboard' to 'dashboard' for the main live tracking view
-              const mappedView = targetView === 'liveDashboard' ? 'dashboard' : targetView;
-              setView(mappedView);
-            }}
-            initialRoomId={selectedRoomId}
-            initialProfileId={selectedProfileId}
-            onRoomChange={(roomId, profileId) => {
-              setSelectedRoomId(roomId);
-              setSelectedProfileId(profileId);
-            }}
-            onWizardProgress={(p) => {
-              if (p.outlineDone) {
-                setWizardOutlineDone(true);
-                setWizardStep('placement');
-                updateSettings({ outlineDone: true, wizardStep: 'placement' }).catch(() => null);
-              }
-              if (p.placementDone) {
-                setWizardPlacementDone(true);
-                setWizardStep('zones');
-                updateSettings({ placementDone: true, wizardStep: 'zones' }).catch(() => null);
-              }
-            }}
-            liveState={liveState}
-            targetPositions={targetPositions}
-          />
-        )}
-        {view === 'liveTracking' && (
-          <LiveTrackingPage
-            onNavigate={(view) => {
-              // Reset wizard step when navigating to Add Device
-              if (view === 'wizard') {
-                setWizardStep('device');
-                updateSettings({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null }).catch(() => null);
-              }
-              setView(view);
-            }}
-            initialRoomId={selectedRoomId}
-            initialProfileId={selectedProfileId}
-            liveState={liveState}
-            targetPositions={targetPositions}
-            onRoomChange={(roomId, profileId) => {
-              setSelectedRoomId(roomId);
-              setSelectedProfileId(profileId);
-            }}
-          />
-        )}
-        {view === 'settings' && (
-          <SettingsPage
-            onBack={() => setView('dashboard')}
-            onRoomDeleted={(roomId) => {
-              setRooms((prev) => prev.filter((r) => r.id !== roomId));
-              if (selectedRoomId === roomId) {
-                setSelectedRoomId(null);
-              }
-            }}
-            onRoomUpdated={(room) => {
-              setRooms((prev) => prev.map((r) => (r.id === room.id ? room : r)));
-            }}
-          />
-        )}
-        </main>
-        <DebugRecordingPill />
-      </div>
-    </DeviceMappingsProvider>
+          </div>
+        );
+    }
+  };
+
+  return (
+    <AppShell route={route} lastRoomId={selectedRoomId} presence={presence} onAddDevice={startWizard}>
+      {renderScreen()}
+      <DebugRecordingPill />
+    </AppShell>
+  );
+}
+
+function App() {
+  return (
+    <ToastProvider>
+      <AppDataProvider>
+        <DeviceMappingsProvider>
+          <AppRoutes />
+        </DeviceMappingsProvider>
+      </AppDataProvider>
+    </ToastProvider>
   );
 }
 

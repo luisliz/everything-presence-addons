@@ -1,11 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { fetchRooms, deleteRoom, updateRoom, createRoom } from '../api/rooms';
+import React, { useState, useEffect, useMemo } from 'react';
+import { deleteRoom, updateRoom, createRoom } from '../api/rooms';
 import {
-  fetchMetaConfig,
-  fetchSettings,
-  updateSettings,
-  fetchDevices,
-  fetchProfiles,
   fetchZoneBackups,
   createZoneBackup,
   restoreZoneBackup,
@@ -25,50 +20,71 @@ import {
   CustomFloorMaterial,
   CustomFurnitureType,
   EntityMappings,
-  DiscoveredDevice,
-  DeviceProfile,
   ZoneBackup,
 } from '../api/types';
 import { EntityDiscovery } from '../components/EntityDiscovery';
 import { FirmwareUpdateSection } from '../components/FirmwareUpdateSection';
 import { TroubleshootingCard } from '../components/TroubleshootingCard';
+import { ThemeSegmented } from '../components/shell/ThemeSegmented';
+import { useAppData } from '../contexts/AppDataContext';
 import { useDeviceMappings } from '../contexts/DeviceMappingsContext';
 import { getDeviceMapping, DeviceMapping } from '../api/deviceMappings';
+import { navigate, type Route, type SettingsSection } from '../router';
+
+type SettingsTab = SettingsSection | 'rooms';
 
 interface SettingsPageProps {
+  section: SettingsTab;
   onBack?: () => void;
-  onRoomDeleted?: (roomId: string) => void;
-  onRoomUpdated?: (room: RoomConfig) => void;
 }
-
-type SettingsTab = 'rooms' | 'backups' | 'assets' | 'firmware' | 'troubleshooting';
 
 const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
   { id: 'rooms', label: 'Rooms' },
+  { id: 'appearance', label: 'Appearance' },
   { id: 'backups', label: 'Backups' },
   { id: 'assets', label: 'Assets' },
   { id: 'firmware', label: 'Firmware' },
   { id: 'troubleshooting', label: 'Troubleshooting' },
 ];
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDeleted, onRoomUpdated }) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('rooms');
-  const [rooms, setRooms] = useState<RoomConfig[]>([]);
-  const [loading, setLoading] = useState(true);
+const tabRoute = (tab: SettingsTab): Route => (tab === 'rooms' ? { name: 'rooms' } : { name: 'settings', section: tab });
+
+export const SettingsPage: React.FC<SettingsPageProps> = ({ section: activeTab, onBack }) => {
+  const {
+    rooms,
+    devices: allDevices,
+    profiles,
+    settings,
+    appVersion: loadedAppVersion,
+    loading: appLoading,
+    refresh,
+    updateRoom: storeRoom,
+    removeRoom,
+    updateSettings,
+  } = useAppData();
+  const [assetsLoading, setAssetsLoading] = useState(true);
+  const loading = appLoading || assetsLoading;
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
   const [syncingRoom, setSyncingRoom] = useState<RoomConfig | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [defaultRoomId, setDefaultRoomId] = useState<string | null>(null);
+  const defaultRoomId = settings?.defaultRoomId ?? null;
   const [updatingDefaultRoomId, setUpdatingDefaultRoomId] = useState<string | null>(null);
   const [clearingDefaultRoom, setClearingDefaultRoom] = useState(false);
   const [renamingRoomId, setRenamingRoomId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [unlinkingDeviceRoomId, setUnlinkingDeviceRoomId] = useState<string | null>(null);
-  const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
-  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
-  const [appVersion, setAppVersion] = useState<string>('unknown');
+  const devices = useMemo(
+    () =>
+      allDevices.filter(
+        (device) =>
+          device.manufacturer?.toLowerCase().includes('everything') ||
+          device.model?.toLowerCase().includes('presence')
+      ),
+    [allDevices],
+  );
+  const appVersion = loadedAppVersion ?? 'unknown';
 
   // Zone backups state
   const [selectedBackupDeviceId, setSelectedBackupDeviceId] = useState('');
@@ -108,39 +124,24 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
   useEffect(() => {
     const load = async () => {
       try {
-        const [roomsRes, floorsRes, furnitureRes, settingsRes, devicesRes, profilesRes, metaRes] = await Promise.all([
-          fetchRooms(),
-          fetchCustomFloors(),
-          fetchCustomFurniture(),
-          fetchSettings(),
-          fetchDevices(),
-          fetchProfiles(),
-          fetchMetaConfig(),
-        ]);
-        setRooms(roomsRes.rooms);
+        const [floorsRes, furnitureRes] = await Promise.all([fetchCustomFloors(), fetchCustomFurniture()]);
         setCustomFloors(floorsRes.floors);
         setCustomFurniture(furnitureRes.furniture);
-        setDefaultRoomId(typeof settingsRes.settings.defaultRoomId === 'string' ? settingsRes.settings.defaultRoomId : null);
-        setAppVersion(metaRes.appVersion ?? 'unknown');
-        const epDevices = devicesRes.devices.filter(
-          (device) =>
-            device.manufacturer?.toLowerCase().includes('everything') ||
-            device.model?.toLowerCase().includes('presence')
-        );
-        setDevices(epDevices);
-        setProfiles(profilesRes.profiles ?? []);
-        if (!selectedBackupDeviceId && epDevices.length > 0) {
-          setSelectedBackupDeviceId(epDevices[0].id);
-        }
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
       } finally {
-        setLoading(false);
+        setAssetsLoading(false);
       }
     };
     load();
   }, []);
+
+  useEffect(() => {
+    if (!selectedBackupDeviceId && devices.length > 0) {
+      setSelectedBackupDeviceId(devices[0].id);
+    }
+  }, [devices, selectedBackupDeviceId]);
 
   useEffect(() => {
     const loadBackups = async () => {
@@ -176,11 +177,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
     setDeletingRoomId(roomId);
     try {
       await deleteRoom(roomId);
-      setRooms((prev) => prev.filter((r) => r.id !== roomId));
-      onRoomDeleted?.(roomId);
+      removeRoom(roomId);
       if (defaultRoomId === roomId) {
         await updateSettings({ defaultRoomId: null });
-        setDefaultRoomId(null);
       }
       setError(null);
     } catch (err) {
@@ -194,7 +193,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
     setUpdatingDefaultRoomId(room.id);
     try {
       await updateSettings({ defaultRoomId: room.id });
-      setDefaultRoomId(room.id);
       setSuccess(`Default room set to "${room.name}"`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
@@ -212,7 +210,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
     setClearingDefaultRoom(true);
     try {
       await updateSettings({ defaultRoomId: null });
-      setDefaultRoomId(null);
       setSuccess('Default room cleared');
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
@@ -241,9 +238,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
 
     try {
       const result = await updateRoom(roomId, { name: trimmedName });
-      setRooms((prev) =>
-        prev.map((r) => (r.id === roomId ? { ...r, name: result.room.name } : r))
-      );
+      storeRoom(result.room);
       setSuccess(`Room renamed to "${trimmedName}"`);
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
@@ -273,12 +268,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
         entityNamePrefix: savedMapping.esphomeNodeName ?? syncingRoom.entityNamePrefix,
         profileId: updatedProfileId,
       });
-      const updatedRoom = result.room;
-
-      setRooms((prev) =>
-        prev.map((r) => (r.id === syncingRoom.id ? updatedRoom : r))
-      );
-      onRoomUpdated?.(updatedRoom);
+      storeRoom(result.room);
 
       // Refresh device mapping cache so other pages see the new mappings
       if (syncingRoom.deviceId) {
@@ -321,12 +311,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
         entityNamePrefix: '',
       });
 
-      setRooms((prev) =>
-        prev.map((r) => (r.id === room.id ? result.room : r))
-      );
-
-      // Notify parent (App.tsx) so it can update its rooms state
-      onRoomUpdated?.(result.room);
+      storeRoom(result.room);
 
       setSuccess(`Device unlinked from "${room.name}". Room data preserved.`);
       setTimeout(() => setSuccess(null), 4000);
@@ -478,9 +463,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
         // Wait for all imports to complete
         await Promise.all(importPromises);
 
-        // Reload rooms list
-        const roomsResponse = await fetchRooms();
-        setRooms(roomsResponse.rooms);
+        await refresh();
         const count = importPromises.length;
         setSuccess(`Successfully imported ${count} room${count > 1 ? 's' : ''}`);
         setTimeout(() => setSuccess(null), 3000);
@@ -780,7 +763,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
   };
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-full bg-slate-950">
       <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 sm:py-6">
         {/* Header */}
         <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
@@ -801,7 +784,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => navigate(tabRoute(tab.id), { replace: true })}
               className={`shrink-0 rounded-lg px-4 py-2 text-sm font-semibold transition ${
                 activeTab === tab.id
                   ? 'bg-cyan-600 text-white'
@@ -837,6 +820,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ onBack, onRoomDelete
           </div>
         ) : (
           <>
+            {activeTab === 'appearance' && (
+              <section className="rounded-xl border border-line bg-surface p-4 sm:p-6">
+                <h2 className="text-lg font-semibold text-fg">Theme</h2>
+                <p className="mb-4 mt-1 text-sm text-fg-muted">
+                  Match Home Assistant follows the light or dark setting of the screen you are using.
+                </p>
+                <ThemeSegmented />
+              </section>
+            )}
+
             {/* Rooms Tab */}
             {activeTab === 'rooms' && (
               <div className="space-y-6">

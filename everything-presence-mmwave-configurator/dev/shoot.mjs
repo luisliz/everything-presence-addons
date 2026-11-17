@@ -68,22 +68,35 @@ await send('Page.navigate', { url: base });
 await sleep(2500);
 await shot('01-live');
 
-// Pages with a canvas have a Menu; Settings has a Back button instead.
-const open = async (menuRe, name) => {
-  if (await click('^←?\\s*Back$')) await sleep(800);
-  await click('Menu');
-  await sleep(300);
-  if (!(await click(menuRe))) console.log(`no menu item for ${name}`);
-  await sleep(1800);
+// Routes are hash based (#/room/<id>/<mode>, #/settings/<section>, #/rooms, #/wizard).
+const go = async (hash, name, settle = 1800) => {
+  await evaluate(`location.hash = ${JSON.stringify(hash)}`);
+  await sleep(settle);
   await shot(name);
 };
+const roomBase = (await evaluate('location.hash')).replace(/\/(live|zones|build)$/, '');
+const roomIds = await evaluate(`fetch('api/rooms').then((r) => r.json()).then((d) => d.rooms.map((room) => room.id))`);
+const otherRoom = roomIds.find((id) => !roomBase.endsWith(id));
 
-await open('Room Builder', '03-room-builder');
-await open('Settings', '04-settings');
-if (await click('^Firmware$')) { await sleep(1200); await shot('04b-settings-firmware'); }
-await open('Zone Editor', '06-zone-editor');
+if (otherRoom) await go(`#/room/${otherRoom}/live`, '02-room-switch');
+await go(`${roomBase}/build`, '03-room-builder');
+await go('#/settings/appearance', '04-settings');
+await go('#/settings/firmware', '04b-settings-firmware', 1200);
+await go('#/rooms', '05-rooms', 1200);
+await go(`${roomBase}/zones`, '06-zone-editor');
 if (await click('Show Zone Slots|Zone Slots')) { await sleep(600); await shot('07-zone-editor-slots'); }
-await open('Add Device', '08-wizard');
+await go('#/wizard', '08-wizard');
+
+// A cold load of a deep link must land on that room and mode.
+await send('Page.navigate', { url: `${base}${roomBase}/zones` });
+await sleep(2500);
+await shot('09-deeplink-zones');
+
+// Phone: the top bar title opens the room switcher sheet.
+if (mobile && (await evaluate(`(() => { const b = document.querySelector('header button[aria-haspopup="dialog"]'); if (!b) return false; b.click(); return true; })()`))) {
+  await sleep(600);
+  await shot('10-room-switcher-sheet');
+}
 
 ws.close();
 cleanup();

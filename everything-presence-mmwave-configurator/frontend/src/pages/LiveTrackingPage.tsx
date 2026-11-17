@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { DiscoveredDevice, DeviceProfile, RoomConfig, LiveState, ZonePolygon } from '../api/types';
-import { fetchDevices, fetchProfiles, fetchSettings, ingressAware } from '../api/client';
-import { fetchRooms, updateRoom } from '../api/rooms';
+import { LiveState, ZonePolygon } from '../api/types';
+import { ingressAware } from '../api/client';
+import { updateRoom } from '../api/rooms';
+import { useAppData } from '../contexts/AppDataContext';
+import { navigate } from '../router';
 import { fetchZonesFromDevice, fetchPolygonModeStatus, fetchPolygonZonesFromDevice, PolygonModeStatus } from '../api/zones';
 import { ZoneCanvas } from '../components/ZoneCanvas';
 import { EP1DistanceArc } from '../components/EP1DistanceArc';
@@ -51,7 +53,6 @@ interface RecordedPoint {
 
 interface LiveTrackingPageProps {
   onBack?: () => void;
-  onNavigate?: (view: 'wizard' | 'zoneEditor' | 'roomBuilder' | 'settings' | 'liveDashboard') => void;
   initialRoomId?: string | null;
   initialProfileId?: string | null;
   liveState?: LiveState | null;
@@ -63,10 +64,9 @@ interface LiveTrackingPageProps {
     speed: number | null;
     angle: number | null;
   }>;
-  onRoomChange?: (roomId: string | null, profileId: string | null) => void;
 }
 
-type MobileLiveSheet = 'details' | 'display' | 'zoom' | 'device' | 'navigation' | null;
+type MobileLiveSheet = 'details' | 'display' | 'zoom' | 'device' | null;
 
 const normalizeAngle = (angle: number): number => {
   let normalized = ((angle % 360) + 360) % 360;
@@ -76,20 +76,15 @@ const normalizeAngle = (angle: number): number => {
 
 export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
   onBack,
-  onNavigate,
   initialRoomId,
   initialProfileId,
   liveState: propLiveState,
   targetPositions: propTargetPositions = [],
-  onRoomChange
 }) => {
-  const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
-  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
-  const [rooms, setRooms] = useState<RoomConfig[]>([]);
+  const { devices, profiles, rooms, settings, loading: appLoading, error: appError, updateRoom: storeRoom } = useAppData();
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(initialRoomId ?? null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(initialProfileId ?? null);
   const liveState = propLiveState;
-  const [showNavMenu, setShowNavMenu] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [rangeMm, setRangeMm] = useState(15000);
@@ -352,64 +347,41 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
   });
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [devicesRes, profilesRes, roomsRes, settingsRes] = await Promise.all([
-          fetchDevices(),
-          fetchProfiles(),
-          fetchRooms(),
-          fetchSettings(),
-        ]);
-        setDevices(devicesRes.devices);
-        setProfiles(profilesRes.profiles);
-        setRooms(roomsRes.rooms);
+    if (appLoading || !loading) return;
+    let roomId = selectedRoomId ?? initialRoomId ?? null;
+    const defaultRoomId = typeof settings?.defaultRoomId === 'string' ? settings.defaultRoomId : null;
 
-        let roomId = selectedRoomId ?? initialRoomId ?? null;
-        const defaultRoomId =
-          typeof settingsRes.settings.defaultRoomId === 'string' ? settingsRes.settings.defaultRoomId : null;
-
-        if (!roomId && defaultRoomId) {
-          const defaultRoom = roomsRes.rooms.find((room) => room.id === defaultRoomId);
-          if (defaultRoom) {
-            roomId = defaultRoomId;
-          }
-        }
-        if (!roomId && roomsRes.rooms.length > 0) {
-          roomId = roomsRes.rooms[0].id;
-        }
-
-        let profileId = selectedProfileId ?? initialProfileId ?? null;
-        if (roomId) {
-          const selected = roomsRes.rooms.find((room) => room.id === roomId);
-          if (selected?.profileId) {
-            profileId = selected.profileId;
-          }
-        }
-        if (!profileId && profilesRes.profiles.length > 0) {
-          profileId = profilesRes.profiles[0].id;
-        }
-
-        if (roomId && roomId !== selectedRoomId) {
-          setSelectedRoomId(roomId);
-        }
-        if (profileId && profileId !== selectedProfileId) {
-          setSelectedProfileId(profileId);
-        }
-
-        // Notify parent of initial selection
-        if (roomId || profileId) {
-          onRoomChange?.(roomId, profileId);
-        }
-
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setLoading(false);
+    if (!roomId && defaultRoomId) {
+      const defaultRoom = rooms.find((room) => room.id === defaultRoomId);
+      if (defaultRoom) {
+        roomId = defaultRoomId;
       }
-    };
-    load();
-  }, []);
+    }
+    if (!roomId && rooms.length > 0) {
+      roomId = rooms[0].id;
+    }
+
+    let profileId = selectedProfileId ?? initialProfileId ?? null;
+    if (roomId) {
+      const selected = rooms.find((room) => room.id === roomId);
+      if (selected?.profileId) {
+        profileId = selected.profileId;
+      }
+    }
+    if (!profileId && profiles.length > 0) {
+      profileId = profiles[0].id;
+    }
+
+    if (roomId && roomId !== selectedRoomId) {
+      setSelectedRoomId(roomId);
+    }
+    if (profileId && profileId !== selectedProfileId) {
+      setSelectedProfileId(profileId);
+    }
+
+    setError(appError);
+    setLoading(false);
+  }, [appLoading]);
 
   useEffect(() => {
     if (!initialRoomId || initialRoomId === selectedRoomId) return;
@@ -419,8 +391,7 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
     if (room.profileId) {
       setSelectedProfileId(room.profileId);
     }
-    onRoomChange?.(initialRoomId, room.profileId ?? selectedProfileId ?? null);
-  }, [initialRoomId, rooms, selectedRoomId, selectedProfileId, onRoomChange]);
+  }, [initialRoomId, rooms, selectedRoomId]);
 
   // Update trail history when target positions change
   useEffect(() => {
@@ -627,9 +598,7 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
         const updatedRoom = { ...selectedRoom, zones: deviceZones };
 
         // Update local state
-        setRooms((prev) => prev.map((r) =>
-          r.id === selectedRoom.id ? updatedRoom : r
-        ));
+        storeRoom(updatedRoom);
 
         // Persist to add-on storage to keep it in sync with device
         await updateRoom(selectedRoom.id, { zones: deviceZones });
@@ -807,14 +776,6 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
     setPanOffsetMm({ x: (minX + maxX) / 2, y: (minY + maxY) / 2 });
   }, [selectedRoom, rangeMm]);
 
-  const handleRoomSelection = useCallback((roomId: string | null) => {
-    setSelectedRoomId(roomId);
-    const room = rooms.find((candidate) => candidate.id === roomId);
-    const newProfileId = room?.profileId ?? selectedProfileId;
-    if (room?.profileId) setSelectedProfileId(room.profileId);
-    onRoomChange?.(roomId, newProfileId);
-  }, [onRoomChange, rooms, selectedProfileId]);
-
   // Auto-zoom when room changes (only on room ID change, not on every handleAutoZoom recreation)
   // Using a ref to track if we've already auto-zoomed for this room
   const lastAutoZoomedRoomId = React.useRef<string | null>(null);
@@ -907,7 +868,7 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
       : 'text-slate-400';
 
   return (
-    <div className="fixed inset-0 bg-slate-950 overflow-hidden">
+    <div className="absolute inset-0 bg-slate-950 overflow-hidden">
       {/* Error Toast */}
       {error && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 max-w-lg rounded-xl border border-rose-500/50 bg-rose-500/10 backdrop-blur px-6 py-3 text-rose-100 shadow-xl animate-in slide-in-from-top-4 fade-in">
@@ -918,14 +879,14 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
       {/* Entity Sync Nudge Banner - shown for rooms with device but no valid entity mappings */}
       {/* Positioned below the Room selector dropdown (top-20) */}
       {/* Don't show while mapping is loading to avoid flash of warning */}
-      {selectedRoom && selectedRoom.deviceId && !mappingLoading && !deviceHasValidMappings && onNavigate && (
+      {selectedRoom && selectedRoom.deviceId && !mappingLoading && !deviceHasValidMappings && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 max-w-xl rounded-xl border border-yellow-500/50 bg-yellow-500/10 backdrop-blur px-5 py-2.5 shadow-xl animate-in slide-in-from-top-4 fade-in">
           <div className="flex items-center gap-3">
             <span className="text-yellow-400">⚠</span>
             <p className="text-xs text-yellow-100">
               Entity mappings not configured.{' '}
               <button
-                onClick={() => onNavigate('settings')}
+                onClick={() => navigate({ name: 'rooms' })}
                 className="underline hover:text-yellow-50 font-medium"
               >
                 Re-sync in Settings
@@ -945,31 +906,9 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
             >
               Back
             </button>
-          ) : onNavigate ? (
-            <button
-              type="button"
-              onClick={() => setActiveMobileSheet('navigation')}
-              className="min-h-[40px] rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm font-semibold text-slate-100"
-            >
-              Menu
-            </button>
           ) : null}
-          title={rooms.length > 0 ? (
-            <select
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm font-semibold text-slate-100 focus:border-aqua-500 focus:outline-none focus:ring-1 focus:ring-aqua-500/50"
-              value={selectedRoomId ?? ''}
-              onChange={(event) => handleRoomSelection(event.target.value || null)}
-            >
-              {rooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.name}
-                </option>
-              ))}
-            </select>
-          ) : (
-            loading ? 'Loading' : 'Live Dashboard'
-          )}
-          subtitle={rooms.length > 0 ? undefined : selectedProfile?.label ?? (selectedRoom ? 'Live tracking' : 'Select a room')}
+          title={loading ? 'Loading' : 'Live Dashboard'}
+          subtitle={selectedProfile?.label ?? (selectedRoom ? 'Live tracking' : 'Select a room')}
           right={(
             <button
               type="button"
@@ -997,77 +936,6 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
         >
           <span className="inline-block transition-transform group-hover:-translate-x-0.5">←</span> Back
         </button>
-      )}
-
-      {!onBack && onNavigate && (
-        <div className="absolute top-6 left-6 z-40 hidden md:block">
-          <button
-            onClick={() => setShowNavMenu(!showNavMenu)}
-            className="group rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-lg transition-all hover:border-slate-600 hover:bg-slate-800 hover:shadow-xl active:scale-95"
-          >
-            <span className="inline-block transition-transform group-hover:rotate-90">☰</span> Menu
-          </button>
-
-          {showNavMenu && (
-            <>
-              {/* Backdrop to close menu */}
-              <div
-                className="fixed inset-0 z-30"
-                onClick={() => setShowNavMenu(false)}
-              />
-
-              {/* Menu dropdown */}
-              <div className="absolute top-14 left-0 z-50 min-w-[200px] rounded-xl border border-slate-700/50 bg-slate-900/95 backdrop-blur shadow-2xl overflow-hidden">
-                <div className="p-2 space-y-1">
-                  <button
-                    onClick={() => {
-                      onNavigate('wizard');
-                      setShowNavMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    ➕ Add Device
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!isEP1) {
-                        onNavigate('zoneEditor');
-                        setShowNavMenu(false);
-                      }
-                    }}
-                    disabled={isEP1}
-                    className={`w-full text-left px-4 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                      isEP1
-                        ? 'text-slate-500 cursor-not-allowed'
-                        : 'text-slate-100 hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95'
-                    }`}
-                    title={isEP1 ? 'Zone editor is not available for EP1 (distance-only tracking)' : ''}
-                  >
-                    📐 Zone Editor {isEP1 && '(Not Available)'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      onNavigate('roomBuilder');
-                      setShowNavMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    🏠 Room Builder
-                  </button>
-                  <button
-                    onClick={() => {
-                      onNavigate('settings');
-                      setShowNavMenu(false);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    ⚙️ Settings
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
       )}
 
       {/* Canvas Content - Full Page */}
@@ -1572,24 +1440,6 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
               return null;
             }}
           />
-
-          {/* Floating Room Selector (top center) */}
-          <div className="absolute top-6 left-1/2 z-40 hidden -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm text-slate-200 shadow-xl md:flex">
-            <span className="text-slate-400 font-medium">Room:</span>
-            <select
-              className="rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-slate-100 transition-colors focus:border-aqua-500 focus:ring-1 focus:ring-aqua-500/50 focus:outline-none font-medium"
-              value={selectedRoomId ?? ''}
-              onChange={(e) => {
-                handleRoomSelection(e.target.value || null);
-              }}
-            >
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </div>
 
           {/* Live State Info Panel (or EP1 Info Stack) */}
           <div className="absolute top-24 right-6 bottom-28 z-40 hidden w-72 max-w-full md:block">
@@ -2676,62 +2526,6 @@ export const LiveTrackingPage: React.FC<LiveTrackingPageProps> = ({
           </div>
         </div>
       )}
-
-      <CanvasMobileSheet
-        open={activeMobileSheet === 'navigation'}
-        title="Menu"
-        onClose={() => setActiveMobileSheet(null)}
-      >
-        <div className="space-y-2">
-          {onNavigate && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate('wizard');
-                  setActiveMobileSheet(null);
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Add Device
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isEP1) {
-                    onNavigate('zoneEditor');
-                    setActiveMobileSheet(null);
-                  }
-                }}
-                disabled={isEP1}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100 disabled:opacity-40"
-              >
-                Zone Editor
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate('roomBuilder');
-                  setActiveMobileSheet(null);
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Room Builder
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onNavigate('settings');
-                  setActiveMobileSheet(null);
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Settings
-              </button>
-            </>
-          )}
-        </div>
-      </CanvasMobileSheet>
 
       <CanvasMobileSheet
         open={activeMobileSheet === 'details'}

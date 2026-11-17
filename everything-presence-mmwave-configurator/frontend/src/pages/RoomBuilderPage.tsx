@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { fetchDevices, fetchProfiles, ingressAware } from '../api/client';
-import { fetchRooms, updateRoom } from '../api/rooms';
+import { ingressAware } from '../api/client';
+import { updateRoom } from '../api/rooms';
 import type { RoomUpdatePayload } from '../api/rooms';
 import { RoomCanvas } from '../components/RoomCanvas';
-import { DiscoveredDevice, DeviceProfile, RoomConfig, LiveState, FurnitureInstance, FurnitureType, Door, DevicePlacement } from '../api/types';
+import { RoomConfig, LiveState, FurnitureInstance, FurnitureType, Door, DevicePlacement } from '../api/types';
+import { useAppData } from '../contexts/AppDataContext';
+import { useLeaveGuard } from '../router';
 import { useWallDrawing } from '../hooks/useWallDrawing';
 import { FurnitureLibrary } from '../components/FurnitureLibrary';
 import { FurnitureEditor } from '../components/FurnitureEditor';
@@ -26,7 +28,6 @@ import { getInstallationAngleSuggestion } from '../utils/rotationSuggestion';
 import { useDeviceMappings } from '../contexts/DeviceMappingsContext';
 import { getDeviceIconUrl } from '../utils/deviceIcon';
 import { resolveCoverageFov } from '../utils/coverage';
-import { roomSupportsZoneEditing } from '../utils/zoneCapabilities';
 import { formatLengthLabel } from '../utils/lengthLabels';
 import { formatSnapPresetLabel } from '../utils/snapLabels';
 import {
@@ -87,10 +88,8 @@ import { canCenterRoomSnapshot, centerRoomSnapshot, isRoomCentered } from '../ut
 
 interface RoomBuilderPageProps {
   onBack?: () => void;
-  onNavigate?: (view: 'wizard' | 'zoneEditor' | 'roomBuilder' | 'settings' | 'liveDashboard') => void;
   initialRoomId?: string | null;
   initialProfileId?: string | null;
-  onRoomChange?: (roomId: string | null, profileId: string | null) => void;
   onWizardProgress?: (progress: { outlineDone?: boolean; placementDone?: boolean }) => void;
   liveState?: LiveState | null;
   targetPositions?: Array<{
@@ -103,10 +102,8 @@ interface RoomBuilderPageProps {
   }>;
 }
 
-type MobileRoomBuilderSheet = 'navigation' | 'tools' | 'zoom' | null;
+type MobileRoomBuilderSheet = 'tools' | 'zoom' | null;
 type RoomBuilderSettingsTab = 'canvas' | 'device' | 'display' | 'floor' | 'layout';
-type RoomBuilderView = 'wizard' | 'zoneEditor' | 'roomBuilder' | 'settings' | 'liveDashboard';
-type PendingLeave = { type: 'navigate'; view: RoomBuilderView } | { type: 'back' };
 
 const roomSignature = (room: RoomConfig | null | undefined): string => (room ? stableStringify(room) : '');
 
@@ -145,16 +142,13 @@ type PointsChangeOptions = CommitRoomOptions & {
 
 export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
   onBack,
-  onNavigate,
   initialRoomId,
   initialProfileId,
-  onRoomChange,
   onWizardProgress,
   liveState,
   targetPositions,
 }) => {
-  const [devices, setDevices] = useState<DiscoveredDevice[]>([]);
-  const [profiles, setProfiles] = useState<DeviceProfile[]>([]);
+  const { devices, profiles, rooms: appRooms, loading: appLoading, error: appError, updateRoom: storeRoom } = useAppData();
   const [rooms, setRooms] = useState<RoomConfig[]>([]);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
@@ -179,7 +173,6 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
   // Last state each room was known to have on the server; the baseline for
   // "do I have unsaved changes?" and for discarding them again.
   const [savedRooms, setSavedRooms] = useState<Record<string, RoomConfig>>({});
-  const [pendingLeave, setPendingLeave] = useState<PendingLeave | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [clearedPoints, setClearedPoints] = useState<{ x: number; y: number }[] | null>(null);
   const [hoveredSegment, setHoveredSegment] = useState<number | null>(null);
@@ -204,7 +197,6 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
   const [isCanvasDragging, setIsCanvasDragging] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<RoomBuilderSettingsTab>('display');
-  const [showNavMenu, setShowNavMenu] = useState(false);
   const [activeMobileSheet, setActiveMobileSheet] = useState<MobileRoomBuilderSheet>(null);
   /**
    * Which way a floor-plan rotation is meant to be read. 'layout' turns the plan
@@ -490,15 +482,6 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
     const caps = selectedProfile?.capabilities as { tracking?: boolean; distanceOnlyTracking?: boolean } | undefined;
     return Boolean(caps?.tracking) && !caps?.distanceOnlyTracking;
   }, [selectedProfile]);
-
-  // Room Builder supports every device, but the Zone Editor does not: a
-  // distance-only sensor (EP1) has no zones to draw, so the menu entry is
-  // greyed out here exactly as it is on the live dashboard.
-  const zoneEditingSupported = useMemo(
-    () => roomSupportsZoneEditing(selectedRoom, profiles),
-    [profiles, selectedRoom],
-  );
-  const zoneEditorDisabledReason = 'Zone editor is not available for EP1 (distance-only tracking)';
 
   // Device mappings context for entity resolution
   const { getEntityId } = useDeviceMappings();
@@ -1177,39 +1160,24 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
   }, [commitRoom, endHistoryGesture, selectedRoom, stopDrawing]);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [deviceRes, profileRes, roomRes] = await Promise.all([fetchDevices(), fetchProfiles(), fetchRooms()]);
-        setDevices(deviceRes.devices);
-        setProfiles(profileRes.profiles);
-        setRooms(roomRes.rooms);
-        setSavedRooms(Object.fromEntries(roomRes.rooms.map((room) => [room.id, room])));
+    if (appLoading) return;
+    if (appError) setError(appError);
+    setRooms(appRooms);
+    setSavedRooms(Object.fromEntries(appRooms.map((room) => [room.id, room])));
 
-        // A room the user already picked wins over the incoming prop - the fetch
-        // can resolve after they used the header dropdown.
-        const initialRoom = resolveLoadedRoomSelection(roomRes.rooms, initialRoomId, selectedRoomIdRef.current);
-        let profileId = initialRoom?.profileId ?? selectedProfileIdRef.current ?? null;
-        if (!profileId && profileRes.profiles.length > 0) {
-          profileId = initialProfileId ?? profileRes.profiles[0].id;
-        }
+    const initialRoom = resolveLoadedRoomSelection(appRooms, initialRoomId, selectedRoomIdRef.current);
+    let profileId = initialRoom?.profileId ?? selectedProfileIdRef.current ?? null;
+    if (!profileId && profiles.length > 0) {
+      profileId = initialProfileId ?? profiles[0].id;
+    }
 
-        if (initialRoom) setSelectedRoomId(initialRoom.id);
-        if (profileId) setSelectedProfileId(profileId);
-        // Tell the app what we landed on, so `initialRoomId` tracks the builder
-        // instead of pulling it somewhere else later.
-        if (initialRoom || profileId) {
-          onRoomChange?.(initialRoom?.id ?? selectedRoomIdRef.current ?? null, profileId);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      }
-    };
-    load();
+    if (initialRoom) setSelectedRoomId(initialRoom.id);
+    if (profileId) setSelectedProfileId(profileId);
     // Initialisation only: this effect writes `rooms`/`savedRooms` and the
-    // selection, so depending on any of them would refetch mid-edit and snap the
+    // selection, so depending on any of them would reseed mid-edit and snap the
     // user back to `initialRoomId`. External room changes are handled by the
     // sync effect below.
-  }, []);
+  }, [appLoading]);
 
   useEffect(() => {
     // Follow the parent only when it actually points somewhere new, and without
@@ -1851,6 +1819,7 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
       };
       const result = await updateRoom(selectedRoom.id, payload);
       setRooms((prev) => prev.map((r) => (r.id === selectedRoom.id ? result.room : r)));
+      storeRoom(result.room);
       setSavedRooms((prev) => ({ ...prev, [result.room.id]: result.room }));
       onWizardProgress?.({ outlineDone: true, placementDone: true });
       setError(null);
@@ -1861,51 +1830,9 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
     } finally {
       setSaving(false);
     }
-  }, [centerLayout, onWizardProgress, savedRooms, selectedRoom]);
+  }, [centerLayout, onWizardProgress, savedRooms, selectedRoom, storeRoom]);
 
-  const leave = useCallback(
-    (target: PendingLeave) => {
-      if (target.type === 'back') {
-        onBack?.();
-        return;
-      }
-      onNavigate?.(target.view);
-    },
-    [onBack, onNavigate]
-  );
-
-  // Leaving the Room Builder never writes silently: unsaved edits (including
-  // deleted walls) prompt for Save / Discard / Cancel first.
-  const requestLeave = useCallback(
-    (target: PendingLeave) => {
-      if (target.type === 'navigate' && !onNavigate) return;
-      if (target.type === 'back' && !onBack) return;
-      if (selectedRoom && hasUnsavedChanges) {
-        setPendingLeave(target);
-        return;
-      }
-      leave(target);
-    },
-    [hasUnsavedChanges, leave, onBack, onNavigate, selectedRoom]
-  );
-
-  const navigateTo = useCallback(
-    (view: RoomBuilderView) => requestLeave({ type: 'navigate', view }),
-    [requestLeave]
-  );
-
-  const handlePendingSaveAndLeave = useCallback(async () => {
-    const target = pendingLeave;
-    if (!target) return;
-    const saved = await handleSaveRoom();
-    if (!saved) return; // keep the prompt open; the error toast explains why
-    setPendingLeave(null);
-    leave(target);
-  }, [handleSaveRoom, leave, pendingLeave]);
-
-  const handlePendingDiscardAndLeave = useCallback(() => {
-    const target = pendingLeave;
-    if (!target) return;
+  const discardRoomEdits = useCallback(() => {
     if (selectedRoom) {
       const saved = savedRooms[selectedRoom.id];
       if (saved) {
@@ -1917,9 +1844,16 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
       syncHistoryAvailability(selectedRoom.id);
     }
     setClearedPoints(null);
-    setPendingLeave(null);
-    leave(target);
-  }, [endHistoryGesture, leave, pendingLeave, savedRooms, selectedRoom, syncHistoryAvailability]);
+  }, [endHistoryGesture, savedRooms, selectedRoom, syncHistoryAvailability]);
+
+  // Leaving the Room Builder never writes silently: unsaved edits (including
+  // deleted walls) prompt for Save / Discard / Stay first. A failed save keeps
+  // the prompt open; the error toast explains why.
+  useLeaveGuard(
+    Boolean(selectedRoom) && hasUnsavedChanges,
+    'This room has changes that have not been saved yet. Save them before leaving, or discard them and keep the last saved version of the room.',
+    { onSave: handleSaveRoom, onDiscard: discardRoomEdits },
+  );
 
   // Reloading or closing the tab also discards unsaved room edits - warn first.
   useEffect(() => {
@@ -1972,15 +1906,6 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
     }
   }, [isMobileCanvas]);
 
-  const handleRoomSelection = useCallback((roomId: string | null) => {
-    setSelectedRoomId(roomId);
-    const room = rooms.find((candidate) => candidate.id === roomId);
-    if (room?.profileId) setSelectedProfileId(room.profileId);
-    // Keep the rest of the app on the same room, so `initialRoomId` cannot pull
-    // the builder back and the choice survives navigating away and back.
-    onRoomChange?.(roomId, room?.profileId ?? selectedProfileId);
-  }, [onRoomChange, rooms, selectedProfileId]);
-
   const toggleMobileToolsSheet = () => {
     setShowSettings(false);
     setActiveMobileSheet((current) => current === 'tools' ? null : 'tools');
@@ -2003,7 +1928,7 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
   const isZeroSuggestion = rotationSuggestion?.suggestedAngle === 0;
 
   return (
-    <div className="fixed inset-0 bg-slate-950 overflow-hidden">
+    <div className="absolute inset-0 bg-slate-950 overflow-hidden">
       {/* Error Toast */}
       {error && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50 max-w-lg rounded-xl border border-rose-500/50 bg-rose-500/10 backdrop-blur px-6 py-3 text-rose-100 shadow-xl animate-in slide-in-from-top-4 fade-in">
@@ -2097,45 +2022,6 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
         </div>
       )}
 
-      {/* Unsaved changes prompt - shown instead of silently saving when leaving */}
-      {pendingLeave && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPendingLeave(null)} />
-          <div className="relative z-10 w-full max-w-md mx-4 rounded-2xl border border-slate-700/50 bg-slate-900/95 backdrop-blur shadow-2xl animate-in zoom-in-95 fade-in duration-200">
-            <div className="p-6">
-              <h3 className="text-xl font-bold text-white text-center mb-2">Unsaved changes</h3>
-              <p className="text-sm text-slate-300 text-center mb-5">
-                This room has changes that have not been saved yet. Save them before leaving, or discard them and keep
-                the last saved version of the room.
-              </p>
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={handlePendingSaveAndLeave}
-                  disabled={saving}
-                  className="w-full rounded-xl bg-gradient-to-r from-aqua-600 to-aqua-500 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-aqua-500/30 transition-all hover:shadow-xl disabled:opacity-50 active:scale-95"
-                >
-                  {saving ? 'Saving...' : 'Save and leave'}
-                </button>
-                <button
-                  onClick={handlePendingDiscardAndLeave}
-                  disabled={saving}
-                  className="w-full rounded-xl border border-rose-600/50 bg-rose-600/10 px-4 py-2.5 text-sm font-semibold text-rose-100 transition-all hover:bg-rose-600/20 disabled:opacity-50 active:scale-95"
-                >
-                  Discard changes
-                </button>
-                <button
-                  onClick={() => setPendingLeave(null)}
-                  disabled={saving}
-                  className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-700 disabled:opacity-50 active:scale-95"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Clear walls confirmation */}
       {showClearConfirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center">
@@ -2194,37 +2080,16 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
 
       <div className="md:hidden">
         <CanvasTopBar
-          left={onBack && !onNavigate ? (
+          left={onBack ? (
             <button
               type="button"
-              onClick={() => requestLeave({ type: 'back' })}
+              onClick={onBack}
               className="min-h-[40px] rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm font-semibold text-slate-100"
             >
               Back
             </button>
-          ) : onNavigate ? (
-            <button
-              type="button"
-              onClick={() => setActiveMobileSheet('navigation')}
-              className="min-h-[40px] rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm font-semibold text-slate-100"
-            >
-              Menu
-            </button>
           ) : null}
-          title={rooms.length > 0 ? (
-            <select
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm font-semibold text-slate-100 focus:border-aqua-500 focus:outline-none focus:ring-1 focus:ring-aqua-500/50"
-              value={selectedRoomId ?? ''}
-              onChange={(event) => handleRoomSelection(event.target.value || null)}
-            >
-              <option value="">Select room</option>
-              {rooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.name}
-                </option>
-              ))}
-            </select>
-          ) : 'Room Builder'}
+          title="Room Builder"
           right={(
             <button
               type="button"
@@ -2239,83 +2104,13 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
       </div>
 
       {/* Navigation (top left) */}
-      {onBack && !onNavigate && (
+      {onBack && (
         <button
-          onClick={() => requestLeave({ type: 'back' })}
+          onClick={onBack}
           className="absolute top-6 left-6 z-40 hidden group rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-lg transition-all hover:border-slate-600 hover:bg-slate-800 hover:shadow-xl active:scale-95 md:block"
         >
           <span className="inline-block transition-transform group-hover:-translate-x-0.5">←</span> Back
         </button>
-      )}
-
-      {onNavigate && (
-        <div className={`absolute top-6 left-6 hidden md:block ${showNavMenu ? 'z-[60]' : 'z-40'}`}>
-          <button
-            onClick={() => setShowNavMenu(!showNavMenu)}
-            className="group rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-lg transition-all hover:border-slate-600 hover:bg-slate-800 hover:shadow-xl active:scale-95"
-          >
-            <span className="inline-block transition-transform group-hover:rotate-90">☰</span> Menu
-          </button>
-
-          {showNavMenu && (
-            <>
-              {/* Backdrop to close menu */}
-              <div
-                className="fixed inset-0 z-30"
-                onClick={() => setShowNavMenu(false)}
-              />
-
-              {/* Menu dropdown */}
-              <div className="absolute top-14 left-0 z-50 min-w-[200px] rounded-xl border border-slate-700/50 bg-slate-900/95 backdrop-blur shadow-2xl overflow-hidden">
-                <div className="p-2 space-y-1">
-                  <button
-                    onClick={() => {
-                      setShowNavMenu(false);
-                      navigateTo('liveDashboard');
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    📡 Live Dashboard
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowNavMenu(false);
-                      navigateTo('wizard');
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    ➕ Add Device
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (!zoneEditingSupported) return;
-                      setShowNavMenu(false);
-                      navigateTo('zoneEditor');
-                    }}
-                    disabled={!zoneEditingSupported}
-                    className={`w-full text-left px-4 py-2.5 text-sm font-medium rounded-lg transition-all ${
-                      zoneEditingSupported
-                        ? 'text-slate-100 hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95'
-                        : 'text-slate-500 cursor-not-allowed'
-                    }`}
-                    title={zoneEditingSupported ? '' : zoneEditorDisabledReason}
-                  >
-                    📐 Zone Editor {!zoneEditingSupported && '(Not Available)'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowNavMenu(false);
-                      navigateTo('settings');
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-100 rounded-lg transition-all hover:bg-aqua-600/20 hover:text-aqua-400 active:scale-95"
-                  >
-                    ⚙️ Settings
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
       )}
 
       {/* Floating Save Button (top right) */}
@@ -2657,25 +2452,6 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
                   }}
                 />
                 </div>
-          {/* Floating Room Selector (top center) */}
-          <div className="absolute top-6 left-1/2 z-40 hidden -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur px-4 py-2.5 text-sm text-slate-200 shadow-xl md:flex">
-            <span className="text-slate-400 font-medium">Room:</span>
-            <select
-              className="rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-1.5 text-slate-100 transition-colors focus:border-aqua-500 focus:ring-1 focus:ring-aqua-500/50 focus:outline-none font-medium"
-              value={selectedRoomId ?? ''}
-              onChange={(e) => {
-                handleRoomSelection(e.target.value || null);
-              }}
-            >
-              <option value="">Select room</option>
-              {rooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
           {/* Drawing Controls (left side) */}
           <div className="absolute top-24 left-6 z-40 hidden rounded-xl border border-slate-700/50 bg-slate-900/90 backdrop-blur p-3 shadow-xl md:block">
             <div className="flex flex-col gap-2 text-sm">
@@ -4010,62 +3786,6 @@ export const RoomBuilderPage: React.FC<RoomBuilderPageProps> = ({
           </div>
         </div>
       )}
-
-      <CanvasMobileSheet
-        open={activeMobileSheet === 'navigation'}
-        title="Menu"
-        onClose={() => setActiveMobileSheet(null)}
-      >
-        <div className="space-y-2">
-          {onNavigate && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveMobileSheet(null);
-                  navigateTo('liveDashboard');
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Live Dashboard
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveMobileSheet(null);
-                  navigateTo('wizard');
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Add Device
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!zoneEditingSupported) return;
-                  setActiveMobileSheet(null);
-                  navigateTo('zoneEditor');
-                }}
-                disabled={!zoneEditingSupported}
-                title={zoneEditingSupported ? '' : zoneEditorDisabledReason}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Zone Editor {!zoneEditingSupported && '(Not Available)'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveMobileSheet(null);
-                  navigateTo('settings');
-                }}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-left text-sm font-semibold text-slate-100"
-              >
-                Settings
-              </button>
-            </>
-          )}
-        </div>
-      </CanvasMobileSheet>
 
       <CanvasMobileSheet
         open={activeMobileSheet === 'tools'}
