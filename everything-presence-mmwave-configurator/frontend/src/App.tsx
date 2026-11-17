@@ -7,7 +7,6 @@ import React, {
   useState,
 } from 'react';
 import { ingressAware } from './api/client';
-import { createRoom } from './api/rooms';
 import type { AppSettings, LiveState } from './api/types';
 import { DebugRecordingPill } from './components/DebugRecordingPill';
 import {
@@ -35,7 +34,6 @@ import {
   homeRoute,
   type Route,
   resolveRedirect,
-  roomRoute,
   useHash,
   useRoute,
 } from './router';
@@ -45,14 +43,11 @@ import { roomSupportsZoneEditing } from './utils/zoneCapabilities';
 function AppRoutes() {
   const {
     rooms,
-    devices,
     profiles,
     settings,
     loading,
     error: loadError,
     refresh,
-    addRoom,
-    updateRoom: storeRoom,
     updateSettings,
   } = useAppData();
   const [route, navigate] = useRoute();
@@ -179,6 +174,8 @@ function AppRoutes() {
   }, [refreshLiveState, selectedRoom?.deviceId]);
 
   // WebSocket connection for real-time state updates (global)
+  const mappingsKey = JSON.stringify(selectedRoom?.entityMappings ?? null);
+
   useEffect(() => {
     if (!selectedRoom || !selectedRoom.deviceId || !selectedProfile) {
       setLiveState(null);
@@ -784,8 +781,13 @@ function AppRoutes() {
         ws.close();
       }
     };
-    // Depend on memoized room/profile objects - only changes when the actual objects change
-  }, [refreshLiveState, selectedRoom, selectedProfile]);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: resubscribe only when the device, profile or mappings change, not on every room save
+  }, [
+    refreshLiveState,
+    selectedRoom?.deviceId,
+    selectedProfile?.id,
+    mappingsKey,
+  ]);
 
   // Transform device-relative coordinates to room coordinates
   const installationAngle =
@@ -868,15 +870,6 @@ function AppRoutes() {
     navigate({ name: 'wizard' });
   }, [navigate, saveProgress]);
 
-  const openRoom = (
-    roomId: string | null,
-    mode: 'live' | 'zones' | 'build',
-  ) => {
-    const target = roomId ?? selectedRoomId;
-    navigate(target ? roomRoute(target, mode) : home());
-  };
-
-
   const renderScreen = () => {
     if (loading) {
       return (
@@ -915,19 +908,11 @@ function AppRoutes() {
         if (!rooms.some((room) => room.id === route.roomId)) return null;
         return (
           <RoomScreen
+            key={route.roomId}
             roomId={route.roomId}
             mode={route.mode}
             liveState={liveState}
             targetPositions={targetPositions}
-            onWizardZonesReady={() =>
-              saveProgress({ zonesReady: true, wizardStep: 'finish' })
-            }
-            onWizardProgress={(p) => {
-              if (p.outlineDone)
-                saveProgress({ outlineDone: true, wizardStep: 'placement' });
-              if (p.placementDone)
-                saveProgress({ placementDone: true, wizardStep: 'zones' });
-            }}
           />
         );
       }
@@ -937,97 +922,28 @@ function AppRoutes() {
         return (
           <RoomsScreen
             onAddDevice={startWizard}
-            live={selectedRoomId && presence ? { roomId: selectedRoomId, presence } : null}
+            live={
+              selectedRoomId && presence
+                ? { roomId: selectedRoomId, presence }
+                : null
+            }
           />
         );
       case 'wizard':
         return (
-          <div className="p-4">
-            <WizardPage
-              devices={devices}
-              profiles={profiles}
-              rooms={rooms}
-              selectedDeviceId={settings?.wizardDeviceId ?? undefined}
-              selectedProfileId={settings?.wizardProfileId ?? selectedProfileId}
-              onBack={() => {
-                saveProgress({
-                  wizardStep: 'device',
-                  wizardDeviceId: null,
-                  wizardProfileId: null,
-                });
-                navigate(home());
-              }}
-              onCreateRoom={async (
-                name,
-                deviceId,
-                profileId,
-                entityMappings,
-              ) => {
-                // Find the selected device to get its entityNamePrefix (legacy fallback)
-                const selectedDevice = deviceId
-                  ? devices.find((d) => d.id === deviceId)
-                  : undefined;
-                const result = await createRoom({
-                  name,
-                  deviceId: deviceId || undefined,
-                  entityNamePrefix: selectedDevice?.entityNamePrefix,
-                  entityMappings: entityMappings,
-                  profileId: profileId || undefined,
-                  units: 'metric',
-                  zones: [],
-                });
-                addRoom(result.room);
-                return result.room;
-              }}
-              onSelectRoom={(roomId, profileId) => {
-                setSelectedRoomId(roomId);
-                if (profileId) setSelectedProfileId(profileId);
-              }}
-              onGoRoomBuilder={(roomId, profileId) => {
-                if (profileId) setSelectedProfileId(profileId);
-                openRoom(roomId, 'build');
-              }}
-              onGoZoneEditor={(roomId, profileId) => {
-                if (profileId) setSelectedProfileId(profileId);
-                // The router redirect has the final say: a room without zones lands on Live.
-                openRoom(roomId, 'zones');
-              }}
-              onRoomUpdate={storeRoom}
-              onComplete={() => {
-                saveProgress({
-                  wizardCompleted: true,
-                  wizardStep: 'finish',
-                  wizardDeviceId: null,
-                  wizardProfileId: null,
-                });
-                openRoom(null, 'live');
-              }}
-              initialStep={settings?.wizardStep ?? 'device'}
-              onStepChange={(key) => {
-                saveProgress({ wizardStep: key });
-              }}
-              onSelectionChange={(deviceId, profileId) => {
-                saveProgress({
-                  wizardDeviceId: deviceId,
-                  wizardProfileId: profileId,
-                });
-              }}
-              outlineDone={Boolean(settings?.outlineDone)}
-              placementDone={Boolean(settings?.placementDone)}
-              zonesReady={Boolean(settings?.zonesReady)}
-              setOutlineDone={(val) => {
-                saveProgress({ outlineDone: val });
-              }}
-              setPlacementDone={(val) => {
-                saveProgress({ placementDone: val });
-              }}
-              setZonesReady={(val) => {
-                saveProgress({ zonesReady: val });
-              }}
-              liveState={liveState}
-              targetPositions={targetPositions}
-            />
-          </div>
+          <WizardPage
+            liveState={liveState}
+            targetPositions={targetPositions}
+            onRoomChange={setSelectedRoomId}
+            onExit={() => {
+              saveProgress({
+                wizardStep: 'device',
+                wizardDeviceId: null,
+                wizardProfileId: null,
+              });
+              navigate(home());
+            }}
+          />
         );
     }
   };

@@ -1,3 +1,16 @@
+## 2.3.0
+Frontend redesign of the Zone Configurator. Backend, API and device write paths are unchanged.
+
+* Persistent navigation: sidebar from 1024 px, icon rail on tablets, top and bottom bars on phones. The Menu button and the room dropdown are gone. Hash routes for every screen (`#/rooms`, `#/room/<id>/live|zones|build`, `#/settings/<section>`, `#/wizard`) with an unsaved-changes guard.
+* One room screen with Live, Zones and Layout modes on one canvas and a selection-driven inspector (bottom sheet on phones).
+* Full sensor coverage drawn past the walls with hatching outside the room; clip-to-walls is now a toggle (off by default); fit-to-view covers room and coverage; the cone follows the installation angle.
+* Sensor settings live in the inspector. Number settings preview on the canvas as you edit (installation angle, max distance, One ranges) and are written with one Apply; switches and selects still write immediately.
+* Zones: click-to-place polygons and drag rectangles into the next free slot, always-visible handles on the selected zone, points table, snap grid in room coordinates, undo/redo, keyboard shortcuts.
+* Layout: tools in a toolbar, wall/door/furniture/device inspectors, placement preview, installation-angle suggestion inline.
+* Rooms screen with thumbnails, device chips and room actions; Settings is one page with a section rail; firmware device selection is a radio list.
+* Icons replace emoji and text glyphs; selection and state are shown with checks and badges.
+* Dev tooling: fake Home Assistant stub, room seeding, CDP screenshot and functional check scripts under `dev/`.
+
 ## 2.2.5
 * Avoid eager entity prefix discovery during startup by @EverythingSmartHome in https://github.com/EverythingSmartHome/everything-presence-addons/pull/371
 * Use device mappings as the runtime source of truth by @EverythingSmartHome in https://github.com/EverythingSmartHome/everything-presence-addons/pull/372

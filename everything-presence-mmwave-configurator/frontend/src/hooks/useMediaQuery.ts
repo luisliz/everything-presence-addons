@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 
-const getQueryMatch = (query: string): boolean => (
-  typeof window !== 'undefined' && window.matchMedia(query).matches
-);
+const getQueryMatch = (query: string): boolean =>
+  typeof window !== 'undefined' && window.matchMedia(query).matches;
 
 export const useMediaQuery = (query: string, initialValue = false): boolean => {
-  const [matches, setMatches] = useState(() => (
-    typeof window === 'undefined' ? initialValue : getQueryMatch(query)
-  ));
+  const [matches, setMatches] = useState(() =>
+    typeof window === 'undefined' ? initialValue : getQueryMatch(query),
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -27,5 +26,3 @@ export const useMediaQuery = (query: string, initialValue = false): boolean => {
 
   return matches;
 };
-
-export const useIsMobileCanvas = () => useMediaQuery('(max-width: 767px)');
