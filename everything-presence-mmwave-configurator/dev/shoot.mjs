@@ -83,8 +83,10 @@ await go(`${roomBase}/build`, '03-room-builder');
 await go('#/settings/appearance', '04-settings');
 await go('#/settings/firmware', '04b-settings-firmware', 1200);
 await go('#/rooms', '05-rooms', 1200);
-await go(`${roomBase}/zones`, '06-zone-editor');
-if (await click('Show Zone Slots|Zone Slots')) { await sleep(600); await shot('07-zone-editor-slots'); }
+await go(`${roomBase}/zones`, '06-zones', 2500);
+if (await evaluate(`(() => { const row = document.querySelector('[data-zone-row]'); if (!row) return false; row.click(); return true; })()`)) await shot('07-zones-selected');
+if (await evaluate(`(() => { const i = document.querySelector('[aria-label="Tool"] input[value="rectangle"]'); if (!i) return false; i.click(); return true; })()`)) await shot('07b-zones-drawing');
+await evaluate(`document.querySelector('[aria-label="Tool"] input[value="select"]')?.click()`);
 await go('#/wizard', '08-wizard');
 
 // A cold load of a deep link must land on that room and mode.
