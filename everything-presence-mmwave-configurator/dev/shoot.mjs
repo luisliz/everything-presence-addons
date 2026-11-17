@@ -87,7 +87,44 @@ await go(`${roomBase}/zones`, '06-zones', 2500);
 if (await evaluate(`(() => { const row = document.querySelector('[data-zone-row]'); if (!row) return false; row.click(); return true; })()`)) await shot('07-zones-selected');
 if (await evaluate(`(() => { const i = document.querySelector('[aria-label="Tool"] input[value="rectangle"]'); if (!i) return false; i.click(); return true; })()`)) await shot('07b-zones-drawing');
 await evaluate(`document.querySelector('[aria-label="Tool"] input[value="select"]')?.click()`);
-await go('#/wizard', '08-wizard');
+await evaluate(`fetch('api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null }) })`);
+await evaluate(`location.hash = '#/wizard'`);
+await send('Page.reload');
+await sleep(2500);
+await shot('08-wizard');
+
+// Wizard: the first unassigned device into a throwaway room, up to the outline step; the room is deleted afterwards.
+const waitFor = async (expression, timeoutMs = 15000) => {
+  for (let t = 0; t < timeoutMs; t += 250) {
+    if (await evaluate(expression)) return true;
+    await sleep(250);
+  }
+  return false;
+};
+const pressWhenEnabled = async (text) => {
+  const find = `[...document.querySelectorAll('main button')].find((b) => b.offsetParent !== null && !b.disabled && b.textContent.trim() === ${JSON.stringify(text)})`;
+  return (await waitFor(`Boolean(${find})`)) && evaluate(`${find}.click() ?? true`);
+};
+await evaluate(`[...document.querySelectorAll('[aria-label="Device"] input')].find((i) => !i.disabled)?.click()`);
+if (
+  (await pressWhenEnabled('Continue')) &&
+  (await pressWhenEnabled('Continue')) &&
+  (await waitFor(`Boolean(document.querySelector('[aria-label="Room"] input[value="new"]'))`)) &&
+  (await evaluate(`document.querySelector('[aria-label="Room"] input[value="new"]').click() ?? true`)) &&
+  (await pressWhenEnabled('Continue')) &&
+  (await waitFor(`Boolean(document.querySelector('main input:not([type=radio])'))`))
+) {
+  await evaluate(`document.querySelector('main input:not([type=radio])').focus()`);
+  await send('Input.insertText', { text: 'Shoot room' });
+  await pressWhenEnabled('Create room');
+  if (await waitFor(`Boolean(document.querySelector('section[aria-label="Setup step"]'))`)) await shot('08b-wizard-outline');
+  if (mobile && (await evaluate(`(() => { const b = document.querySelector('button[aria-label="All steps"]'); if (!b) return false; b.click(); return true; })()`))) {
+    await shot('08c-wizard-steps');
+    await evaluate(`document.querySelector('[role=dialog] button[aria-label="Close"]')?.click()`);
+  }
+}
+await evaluate(`fetch('api/rooms').then((r) => r.json()).then((d) => Promise.all(d.rooms.filter((room) => room.name === 'Shoot room').map((room) => fetch('api/rooms/' + room.id, { method: 'DELETE' }))))`);
+await evaluate(`fetch('api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wizardStep: 'device', wizardDeviceId: null, wizardProfileId: null }) })`);
 
 // A cold load of a deep link must land on that room and mode.
 await send('Page.navigate', { url: `${base}${roomBase}/zones` });

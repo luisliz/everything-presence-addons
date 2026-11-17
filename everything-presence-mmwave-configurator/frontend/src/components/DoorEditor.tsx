@@ -1,23 +1,8 @@
-import {
-  mdiCheck,
-  mdiClose,
-  mdiDeleteOutline,
-  mdiDoor,
-  mdiLockOpenVariantOutline,
-  mdiLockOutline,
-} from '@mdi/js';
+import { mdiCheck } from '@mdi/js';
 import { type ReactNode, useId } from 'react';
 import type { Door } from '../api/types';
 import { DoorStyleIcon } from './DoorStyleIcon';
-import {
-  Button,
-  cx,
-  Field,
-  Icon,
-  IconButton,
-  Note,
-  NumberField,
-} from './primitives';
+import { cx, Field, Icon, Note, NumberField } from './primitives';
 
 export interface DoorValidation {
   overlaps: boolean;
@@ -386,70 +371,5 @@ export const DoorEditorBody = ({
         />
       )}
     </div>
-  );
-};
-
-interface DoorEditorProps extends DoorEditorBodyProps {
-  onDelete: () => void;
-  onClose?: () => void;
-  onToggleLock?: () => void;
-}
-
-/** Right-hand drawer used by the setup wizard. */
-export const DoorEditor = ({
-  onDelete,
-  onClose,
-  onToggleLock,
-  ...body
-}: DoorEditorProps) => {
-  const locked = Boolean(body.door.locked);
-  return (
-    <aside
-      aria-label="Door"
-      className="fixed inset-y-0 right-0 z-50 flex w-80 flex-col border-l border-line bg-surface shadow-e2"
-    >
-      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3">
-        <Icon path={mdiDoor} className="text-fg-muted" />
-        <h2 className="flex-1 text-sm font-semibold text-fg">Door</h2>
-        {onToggleLock && (
-          <IconButton
-            icon={locked ? mdiLockOutline : mdiLockOpenVariantOutline}
-            label={locked ? 'Unlock door' : 'Lock door'}
-            pressed={locked}
-            size="sm"
-            onClick={onToggleLock}
-          />
-        )}
-        {onClose && (
-          <IconButton
-            icon={mdiClose}
-            label="Close"
-            size="sm"
-            onClick={onClose}
-          />
-        )}
-      </header>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        {locked && (
-          <Note tone="warning">
-            This door is locked. Unlock it to move, resize or delete it.
-          </Note>
-        )}
-        <fieldset disabled={locked} className="min-w-0 disabled:opacity-50">
-          <DoorEditorBody {...body} />
-        </fieldset>
-      </div>
-      <footer className="border-t border-line p-3">
-        <Button
-          variant="secondary"
-          icon={mdiDeleteOutline}
-          disabled={locked}
-          onClick={onDelete}
-          className="w-full text-danger-ink"
-        >
-          Delete door
-        </Button>
-      </footer>
-    </aside>
   );
 };

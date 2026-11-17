@@ -36,29 +36,45 @@ import { SHORTCUTS, useRoomKeys } from './room/useRoomKeys';
 import { sensorConfigFrom, useSensorDraft } from './room/useSensorDraft';
 import { ZonesEntry } from './room/ZonesEntry';
 import { clampZoom, ZOOM_STEP } from './room/ZoomCluster';
+import { StepStrip } from './wizard/StepStrip';
+import { type CanvasStep, STEP_TITLE } from './wizard/steps';
 
 const OFFLINE_AFTER_MS = 10000;
 const DEFAULT_VIEWPORT: Viewport = { zoom: 1, panOffsetMm: { x: 0, y: 0 } };
+
+export interface RoomScreenWizard {
+  step: CanvasStep;
+  instruction: string;
+  canNext: boolean;
+  nextHint?: string | null;
+  onNext: () => void;
+  onBack: () => void;
+}
 
 export interface RoomScreenProps {
   roomId: string;
   mode: RoomMode;
   liveState: LiveState | null;
   targetPositions: TargetPosition[];
-  onWizardZonesReady: () => void;
-  onWizardProgress: (progress: {
+  onWizardZonesReady?: () => void;
+  onWizardProgress?: (progress: {
     outlineDone?: boolean;
     placementDone?: boolean;
   }) => void;
+  /** Setup wizard step: a step strip replaces the room header and the mode switch. */
+  wizard?: RoomScreenWizard;
 }
+
+const noop = () => {};
 
 export const RoomScreen = ({
   roomId,
   mode,
   liveState,
   targetPositions,
-  onWizardZonesReady,
-  onWizardProgress,
+  onWizardZonesReady = noop,
+  onWizardProgress = noop,
+  wizard,
 }: RoomScreenProps) => {
   const {
     rooms,
@@ -267,7 +283,7 @@ export const RoomScreen = ({
   );
 
   useRoomKeys({
-    setMode,
+    setMode: wizard ? noop : setMode,
     fit: mode === 'live' ? fit : undefined,
     zoomBy:
       mode === 'live'
@@ -332,41 +348,45 @@ export const RoomScreen = ({
     openLogs,
     openResync,
   };
-  const legacy = {
-    initialRoomId: room.id,
-    initialProfileId: room.profileId ?? null,
-    liveState,
-    targetPositions,
-  };
-
   return (
     <div className="flex h-full flex-col bg-cv-bg">
-      <RoomHeader
-        name={room.name}
-        model={shortModelLabel(profile ?? undefined)}
-        device={device}
-        mode={mode}
-        canEditZones={canEditZones}
-        onMode={setMode}
-        presence={
-          live
-            ? {
-                occupied: Boolean(live.presence),
-                targets: previewTargets.length,
-                since: stateSince.presence ?? null,
-              }
-            : null
-        }
-        isDefault={settings?.defaultRoomId === room.id}
-        onAllRooms={() => navigate({ name: 'rooms' })}
-        onLogs={room.deviceId ? openLogs : undefined}
-        onResync={room.deviceId && room.profileId ? openResync : undefined}
-        onMakeDefault={() =>
-          updateSettings({ defaultRoomId: room.id }).catch(() =>
-            toast.show('Could not save the default room', { tone: 'danger' }),
-          )
-        }
-      />
+      {wizard ? (
+        <StepStrip
+          title={STEP_TITLE[wizard.step]}
+          instruction={wizard.instruction}
+          canNext={wizard.canNext}
+          nextHint={wizard.nextHint}
+          onBack={wizard.onBack}
+          onNext={wizard.onNext}
+        />
+      ) : (
+        <RoomHeader
+          name={room.name}
+          model={shortModelLabel(profile ?? undefined)}
+          device={device}
+          mode={mode}
+          canEditZones={canEditZones}
+          onMode={setMode}
+          presence={
+            live
+              ? {
+                  occupied: Boolean(live.presence),
+                  targets: previewTargets.length,
+                  since: stateSince.presence ?? null,
+                }
+              : null
+          }
+          isDefault={settings?.defaultRoomId === room.id}
+          onAllRooms={() => navigate({ name: 'rooms' })}
+          onLogs={room.deviceId ? openLogs : undefined}
+          onResync={room.deviceId && room.profileId ? openResync : undefined}
+          onMakeDefault={() =>
+            updateSettings({ defaultRoomId: room.id }).catch(() =>
+              toast.show('Could not save the default room', { tone: 'danger' }),
+            )
+          }
+        />
+      )}
       {mode === 'live' && (
         <LiveMode
           frame={frame}
@@ -378,7 +398,6 @@ export const RoomScreen = ({
       {mode === 'zones' && (
         <ZonesEntry
           frame={frame}
-          legacy={legacy}
           onWizardZonesReady={onWizardZonesReady}
           onShowShortcuts={() => setShortcutsOpen(true)}
         />
@@ -386,7 +405,6 @@ export const RoomScreen = ({
       {mode === 'build' && (
         <BuildEntry
           frame={frame}
-          legacy={legacy}
           onWizardProgress={onWizardProgress}
           onShowShortcuts={() => setShortcutsOpen(true)}
         />
