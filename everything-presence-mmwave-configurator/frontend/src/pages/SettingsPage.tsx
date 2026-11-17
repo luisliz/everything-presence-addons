@@ -1,1507 +1,1194 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { deleteRoom, updateRoom, createRoom } from '../api/rooms';
 import {
-  fetchZoneBackups,
-  createZoneBackup,
-  restoreZoneBackup,
-  deleteZoneBackup,
-  importZoneBackups,
-} from '../api/client';
+  mdiBackupRestore,
+  mdiChip,
+  mdiCircle,
+  mdiClose,
+  mdiDeleteOutline,
+  mdiDownload,
+  mdiImport,
+  mdiLifebuoy,
+  mdiPaletteOutline,
+  mdiPlus,
+  mdiRefresh,
+  mdiSquare,
+  mdiSquareRounded,
+  mdiThemeLightDark,
+  mdiVectorPolyline,
+} from '@mdi/js';
 import {
-  fetchCustomFloors,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
   createCustomFloor,
-  deleteCustomFloor,
-  fetchCustomFurniture,
   createCustomFurniture,
+  createZoneBackup,
+  deleteCustomFloor,
   deleteCustomFurniture,
+  deleteZoneBackup,
+  fetchCustomFloors,
+  fetchCustomFurniture,
+  fetchZoneBackups,
+  importZoneBackups,
+  restoreZoneBackup,
 } from '../api/client';
-import {
-  RoomConfig,
+import { type DeviceMapping, getDeviceMapping } from '../api/deviceMappings';
+import type {
   CustomFloorMaterial,
   CustomFurnitureType,
-  EntityMappings,
   ZoneBackup,
 } from '../api/types';
-import { EntityDiscovery } from '../components/EntityDiscovery';
 import { FirmwareUpdateSection } from '../components/FirmwareUpdateSection';
-import { TroubleshootingCard } from '../components/TroubleshootingCard';
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  cx,
+  Field,
+  Icon,
+  IconButton,
+  Note,
+  Panel,
+  useToast,
+} from '../components/primitives';
 import { ThemeSegmented } from '../components/shell/ThemeSegmented';
+import { TroubleshootingCard } from '../components/TroubleshootingCard';
 import { useAppData } from '../contexts/AppDataContext';
-import { useDeviceMappings } from '../contexts/DeviceMappingsContext';
-import { getDeviceMapping, DeviceMapping } from '../api/deviceMappings';
-import { navigate, type Route, type SettingsSection } from '../router';
+import { navigate, type SettingsSection, toHash } from '../router';
+import {
+  downloadJson,
+  fileSafeName,
+  fileTimestamp,
+  pickJsonFile,
+} from '../utils/downloadJson';
 
-type SettingsTab = SettingsSection | 'rooms';
-
-interface SettingsPageProps {
-  section: SettingsTab;
-  onBack?: () => void;
-}
-
-const SETTINGS_TABS: Array<{ id: SettingsTab; label: string }> = [
-  { id: 'rooms', label: 'Rooms' },
-  { id: 'appearance', label: 'Appearance' },
-  { id: 'backups', label: 'Backups' },
-  { id: 'assets', label: 'Assets' },
-  { id: 'firmware', label: 'Firmware' },
-  { id: 'troubleshooting', label: 'Troubleshooting' },
+const SECTIONS: ReadonlyArray<{
+  id: SettingsSection;
+  label: string;
+  icon: string;
+}> = [
+  { id: 'appearance', label: 'Appearance', icon: mdiThemeLightDark },
+  { id: 'backups', label: 'Backups', icon: mdiBackupRestore },
+  { id: 'assets', label: 'Custom assets', icon: mdiPaletteOutline },
+  { id: 'firmware', label: 'Firmware', icon: mdiChip },
+  { id: 'troubleshooting', label: 'Troubleshooting', icon: mdiLifebuoy },
 ];
 
-const tabRoute = (tab: SettingsTab): Route => (tab === 'rooms' ? { name: 'rooms' } : { name: 'settings', section: tab });
+const anchorId = (section: SettingsSection) => `settings-${section}`;
 
-export const SettingsPage: React.FC<SettingsPageProps> = ({ section: activeTab, onBack }) => {
-  const {
-    rooms,
-    devices: allDevices,
-    profiles,
-    settings,
-    appVersion: loadedAppVersion,
-    loading: appLoading,
-    refresh,
-    updateRoom: storeRoom,
-    removeRoom,
-    updateSettings,
-  } = useAppData();
-  const [assetsLoading, setAssetsLoading] = useState(true);
-  const loading = appLoading || assetsLoading;
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [deletingRoomId, setDeletingRoomId] = useState<string | null>(null);
-  const [syncingRoom, setSyncingRoom] = useState<RoomConfig | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const defaultRoomId = settings?.defaultRoomId ?? null;
-  const [updatingDefaultRoomId, setUpdatingDefaultRoomId] = useState<string | null>(null);
-  const [clearingDefaultRoom, setClearingDefaultRoom] = useState(false);
-  const [renamingRoomId, setRenamingRoomId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState('');
-  const [unlinkingDeviceRoomId, setUnlinkingDeviceRoomId] = useState<string | null>(null);
+const INPUT =
+  'h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 [@media(pointer:coarse)]:h-11';
+
+const messageOf = (err: unknown, fallback: string) =>
+  err instanceof Error ? err.message : fallback;
+
+const SectionBlock = ({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: SettingsSection;
+  title: string;
+  description?: ReactNode;
+  children: ReactNode;
+}) => (
+  <section
+    id={anchorId(id)}
+    data-section={id}
+    aria-labelledby={`${anchorId(id)}-title`}
+    className="scroll-mt-16 lg:scroll-mt-6"
+  >
+    <h2
+      id={`${anchorId(id)}-title`}
+      className="font-display text-lg font-semibold text-fg"
+    >
+      {title}
+    </h2>
+    {description && (
+      <p className="mt-0.5 text-sm text-fg-muted">{description}</p>
+    )}
+    <div className="mt-3 flex flex-col gap-4">{children}</div>
+  </section>
+);
+
+const Skeleton = ({ className }: { className?: string }) => (
+  <div
+    className={cx('animate-pulse rounded-lg bg-surface-2', className)}
+    aria-hidden="true"
+  />
+);
+
+const BackupsSection = () => {
+  const { rooms, devices: allDevices, profiles, loading } = useAppData();
+  const toast = useToast();
   const devices = useMemo(
     () =>
       allDevices.filter(
         (device) =>
           device.manufacturer?.toLowerCase().includes('everything') ||
-          device.model?.toLowerCase().includes('presence')
+          device.model?.toLowerCase().includes('presence'),
       ),
     [allDevices],
   );
-  const appVersion = loadedAppVersion ?? 'unknown';
-
-  // Zone backups state
-  const [selectedBackupDeviceId, setSelectedBackupDeviceId] = useState('');
-  const [zoneBackups, setZoneBackups] = useState<ZoneBackup[]>([]);
-  const [backupMapping, setBackupMapping] = useState<DeviceMapping | null>(null);
+  const [deviceId, setDeviceId] = useState('');
+  const [backups, setBackups] = useState<ZoneBackup[]>([]);
+  const [mapping, setMapping] = useState<DeviceMapping | null>(null);
   const [loadingBackups, setLoadingBackups] = useState(false);
-  const [creatingBackup, setCreatingBackup] = useState(false);
-  const [restoringBackupId, setRestoringBackupId] = useState<string | null>(null);
-  const [deletingBackupId, setDeletingBackupId] = useState<string | null>(null);
-  const [importingBackups, setImportingBackups] = useState(false);
-
-  // Device mappings context - used to refresh cache after resync
-  const { refreshMapping } = useDeviceMappings();
-
-  // Custom assets state
-  const [customFloors, setCustomFloors] = useState<CustomFloorMaterial[]>([]);
-  const [customFurniture, setCustomFurniture] = useState<CustomFurnitureType[]>([]);
-  const [showFloorForm, setShowFloorForm] = useState(false);
-  const [showFurnitureForm, setShowFurnitureForm] = useState(false);
-
-  // Floor form state
-  const [floorLabel, setFloorLabel] = useState('');
-  const [floorEmoji, setFloorEmoji] = useState('🎨');
-  const [floorColor, setFloorColor] = useState('#808080');
-  const [floorCategory, setFloorCategory] = useState<'wood' | 'carpet' | 'hard' | 'other'>('other');
-  const [floorPattern, setFloorPattern] = useState<'solid' | 'stripes' | 'checker' | 'dots'>('solid');
-
-  // Furniture form state
-  const [furnitureLabel, setFurnitureLabel] = useState('');
-  const [furnitureCategory, setFurnitureCategory] = useState<'bedroom' | 'living-room' | 'office' | 'dining' | 'all'>('all');
-  const [furnitureWidth, setFurnitureWidth] = useState(1000);
-  const [furnitureDepth, setFurnitureDepth] = useState(1000);
-  const [furnitureHeight, setFurnitureHeight] = useState(500);
-  const [furnitureColor, setFurnitureColor] = useState('#6B7280');
-  const [furnitureShape, setFurnitureShape] = useState<'rectangle' | 'rounded' | 'circle' | 'lshaped'>('rectangle');
+  const [creating, setCreating] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<ZoneBackup | null>(null);
+  const [deletingBusy, setDeletingBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [floorsRes, furnitureRes] = await Promise.all([fetchCustomFloors(), fetchCustomFurniture()]);
-        setCustomFloors(floorsRes.floors);
-        setCustomFurniture(furnitureRes.furniture);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load data');
-      } finally {
-        setAssetsLoading(false);
-      }
-    };
-    load();
-  }, []);
+    if (!deviceId && devices.length > 0) setDeviceId(devices[0].id);
+  }, [devices, deviceId]);
 
   useEffect(() => {
-    if (!selectedBackupDeviceId && devices.length > 0) {
-      setSelectedBackupDeviceId(devices[0].id);
-    }
-  }, [devices, selectedBackupDeviceId]);
-
-  useEffect(() => {
-    const loadBackups = async () => {
-      if (!selectedBackupDeviceId) {
-        setZoneBackups([]);
-        setBackupMapping(null);
-        return;
-      }
-
-      setLoadingBackups(true);
-      try {
-        const [backupsRes, mapping] = await Promise.all([
-          fetchZoneBackups(selectedBackupDeviceId),
-          getDeviceMapping(selectedBackupDeviceId),
-        ]);
-        setZoneBackups(backupsRes.backups ?? []);
-        setBackupMapping(mapping);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load zone backups');
-      } finally {
-        setLoadingBackups(false);
-      }
-    };
-
-    loadBackups();
-  }, [selectedBackupDeviceId]);
-
-  const handleDeleteRoom = async (roomId: string, roomName: string) => {
-    if (!confirm(`Are you sure you want to delete the room "${roomName}"? This action cannot be undone.`)) {
+    if (!deviceId) {
+      setBackups([]);
+      setMapping(null);
       return;
     }
-
-    setDeletingRoomId(roomId);
-    try {
-      await deleteRoom(roomId);
-      removeRoom(roomId);
-      if (defaultRoomId === roomId) {
-        await updateSettings({ defaultRoomId: null });
-      }
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete room');
-    } finally {
-      setDeletingRoomId(null);
-    }
-  };
-
-  const handleSetDefaultRoom = async (room: RoomConfig) => {
-    setUpdatingDefaultRoomId(room.id);
-    try {
-      await updateSettings({ defaultRoomId: room.id });
-      setSuccess(`Default room set to "${room.name}"`);
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update default room');
-    } finally {
-      setUpdatingDefaultRoomId(null);
-    }
-  };
-
-  const handleClearDefaultRoom = async () => {
-    if (!defaultRoomId) return;
-    if (!confirm('Clear the default room selection?')) {
-      return;
-    }
-    setClearingDefaultRoom(true);
-    try {
-      await updateSettings({ defaultRoomId: null });
-      setSuccess('Default room cleared');
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to clear default room');
-    } finally {
-      setClearingDefaultRoom(false);
-    }
-  };
-
-  const handleStartRename = (room: RoomConfig) => {
-    setRenamingRoomId(room.id);
-    setRenameValue(room.name);
-  };
-
-  const handleCancelRename = () => {
-    setRenamingRoomId(null);
-    setRenameValue('');
-  };
-
-  const handleSaveRename = async (roomId: string) => {
-    const trimmedName = renameValue.trim();
-    if (!trimmedName) {
-      setError('Room name cannot be empty');
-      return;
-    }
-
-    try {
-      const result = await updateRoom(roomId, { name: trimmedName });
-      storeRoom(result.room);
-      setSuccess(`Room renamed to "${trimmedName}"`);
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to rename room');
-    } finally {
-      setRenamingRoomId(null);
-      setRenameValue('');
-    }
-  };
-
-  const handleStartSync = (room: RoomConfig) => {
-    if (!room.deviceId || !room.profileId) {
-      setError('This room is not linked to a device. Re-sync requires a linked device.');
-      return;
-    }
-    setSyncingRoom(room);
-    setIsSyncing(true);
-  };
-
-  const handleSyncComplete = async (mappings: EntityMappings, savedMapping: DeviceMapping) => {
-    if (!syncingRoom) return;
-
-    try {
-      const updatedProfileId = savedMapping.profileId || syncingRoom.profileId;
-      const result = await updateRoom(syncingRoom.id, {
-        entityMappings: mappings,
-        entityNamePrefix: savedMapping.esphomeNodeName ?? syncingRoom.entityNamePrefix,
-        profileId: updatedProfileId,
+    let cancelled = false;
+    setLoadingBackups(true);
+    Promise.all([fetchZoneBackups(deviceId), getDeviceMapping(deviceId)])
+      .then(([res, deviceMapping]) => {
+        if (cancelled) return;
+        setBackups(res.backups ?? []);
+        setMapping(deviceMapping);
+      })
+      .catch((err) => {
+        if (!cancelled)
+          toast.show(messageOf(err, 'Failed to load zone backups'), {
+            tone: 'danger',
+          });
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBackups(false);
       });
-      storeRoom(result.room);
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceId, toast]);
 
-      // Refresh device mapping cache so other pages see the new mappings
-      if (syncingRoom.deviceId) {
-        await refreshMapping(syncingRoom.deviceId);
-      }
+  const device = devices.find((candidate) => candidate.id === deviceId) ?? null;
+  const room =
+    rooms.find((candidate) => candidate.deviceId === deviceId) ?? null;
+  const profileId = mapping?.profileId ?? room?.profileId ?? '';
+  const profile = profiles.find((candidate) => candidate.id === profileId);
+  const entityNamePrefix =
+    room?.entityNamePrefix || device?.entityNamePrefix || undefined;
+  const entityMappings = mapping ? undefined : room?.entityMappings;
 
-      setSuccess(`Entity mappings updated for "${syncingRoom.name}"`);
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update entity mappings');
-    } finally {
-      setSyncingRoom(null);
-      setIsSyncing(false);
-    }
-  };
-
-  const handleSyncCancel = () => {
-    setSyncingRoom(null);
-    setIsSyncing(false);
-  };
-
-  const handleUnlinkDevice = async (room: RoomConfig) => {
-    if (!room.deviceId) return;
-
-    const confirmMessage = `Are you sure you want to unlink the device from "${room.name}"?\n\nThis will:\n• Remove the device association\n• Clear entity mappings\n\nThe room geometry, furniture, and zones will be preserved.`;
-    if (!confirm(confirmMessage)) {
-      return;
-    }
-
-    setUnlinkingDeviceRoomId(room.id);
+  const reload = async () => {
+    if (!deviceId) return;
+    setLoadingBackups(true);
     try {
-      // Update room to remove device association and entity mappings
-      // Keep: name, zones, roomShell, furniture, doors, devicePlacement, etc.
-      // Note: Empty strings are converted to undefined by backend's normalizeRoom
-      // Note: null is used for entityMappings because undefined is stripped from JSON
-      const result = await updateRoom(room.id, {
-        deviceId: '',
-        profileId: '',
-        entityMappings: null as unknown as undefined,
-        entityNamePrefix: '',
+      setBackups((await fetchZoneBackups(deviceId)).backups ?? []);
+    } catch (err) {
+      toast.show(messageOf(err, 'Failed to refresh zone backups'), {
+        tone: 'danger',
       });
-
-      storeRoom(result.room);
-
-      setSuccess(`Device unlinked from "${room.name}". Room data preserved.`);
-      setTimeout(() => setSuccess(null), 4000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlink device');
     } finally {
-      setUnlinkingDeviceRoomId(null);
+      setLoadingBackups(false);
     }
   };
 
-  const handleExportRoom = (room: RoomConfig) => {
-    // Create a sanitized copy of the room for export
-    const exportData = {
-      ...room,
-      exportedAt: new Date().toISOString(),
-      exportedFrom: 'Zone Configurator v1.0'
-    };
-
-    // Convert to JSON and create a downloadable file
-    const jsonString = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-
-    // Generate filename with timestamp: RoomName_YYYY-MM-DD_HHmmss.json
-    const timestamp = new Date().toISOString()
-      .replace(/T/, '_')
-      .replace(/\..+/, '')
-      .replace(/:/g, '')
-      .slice(0, 17); // YYYY-MM-DD_HHmmss
-    const sanitizedName = room.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    a.download = `room_${sanitizedName}_${timestamp}.json`;
-
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const target = (): string | null => {
+    if (!deviceId) return 'Select a device first.';
+    if (!profileId)
+      return 'Device profile not found. Run entity discovery to sync the device.';
+    if (!entityNamePrefix && !mapping)
+      return 'Entity name prefix is missing. Link the device to a room or re-sync entities.';
+    return null;
   };
 
-  const handleBackupAllRooms = () => {
-    if (rooms.length === 0) {
-      setError('No rooms to backup');
-      return;
-    }
-
-    // Create backup data with all rooms
-    const backupData = {
-      rooms: rooms,
-      exportedAt: new Date().toISOString(),
-      exportedFrom: 'Zone Configurator v1.0',
-      roomCount: rooms.length,
-    };
-
-    // Convert to JSON and create a downloadable file
-    const jsonString = JSON.stringify(backupData, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-
-    // Generate filename: backup_all_rooms_YYYY-MM-DD_HHmmss.json
-    const timestamp = new Date().toISOString()
-      .replace(/T/, '_')
-      .replace(/\..+/, '')
-      .replace(/:/g, '')
-      .slice(0, 17);
-    a.download = `backup_all_rooms_${timestamp}.json`;
-
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportRoom = () => {
-    // Create a file input element
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json,application/json';
-
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-
-      try {
-        const text = await file.text();
-        const importedData = JSON.parse(text);
-
-        // Check if this is a multi-room backup or single room
-        const isBackup = Array.isArray(importedData.rooms);
-        const roomsToImport: RoomConfig[] = isBackup ? importedData.rooms : [importedData];
-
-        // Validate all rooms
-        for (const room of roomsToImport) {
-          if (!room.name || !Array.isArray(room.zones)) {
-            setError('Invalid room configuration file: missing required fields');
-            return;
-          }
-        }
-
-        // Prompt for room name(s)
-        const importPromises: Promise<void>[] = [];
-
-        for (const importedRoom of roomsToImport) {
-          const defaultName = isBackup ? importedRoom.name : `${importedRoom.name} (imported)`;
-          const newName = prompt(
-            `Enter a name for the imported room:\n\nOriginal name: "${importedRoom.name}"`,
-            defaultName
-          );
-
-          if (!newName) {
-            // User cancelled
-            continue;
-          }
-
-          // Generate a new ID for the imported room
-          const generateId = () => {
-            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-              return crypto.randomUUID();
-            }
-            // Fallback: simple UUID v4 implementation
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-              const r = Math.random() * 16 | 0;
-              const v = c === 'x' ? r : (r & 0x3 | 0x8);
-              return v.toString(16);
-            });
-          };
-
-          const newRoom: RoomConfig = {
-            ...importedRoom,
-            id: generateId(),
-            name: newName.trim(),
-          };
-
-          // Add the imported room via API
-          importPromises.push(
-            createRoom(newRoom).then(() => {}).catch(() => {
-              throw new Error(`Failed to import room: ${newRoom.name}`);
-            })
-          );
-        }
-
-        if (importPromises.length === 0) {
-          setError('Import cancelled');
-          return;
-        }
-
-        // Wait for all imports to complete
-        await Promise.all(importPromises);
-
-        await refresh();
-        const count = importPromises.length;
-        setSuccess(`Successfully imported ${count} room${count > 1 ? 's' : ''}`);
-        setTimeout(() => setSuccess(null), 3000);
-
-      } catch (err) {
-        setError(`Failed to import room: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      }
-    };
-
-    input.click();
-  };
-
-  // ==================== Zone Backup Handlers ====================
-  const selectedBackupDevice = devices.find((device) => device.id === selectedBackupDeviceId) ?? null;
-  const selectedBackupRoom = rooms.find((room) => room.deviceId === selectedBackupDeviceId) ?? null;
-  const selectedBackupProfileId = backupMapping?.profileId ?? selectedBackupRoom?.profileId ?? '';
-  const selectedBackupProfile =
-    profiles.find((profile) => profile.id === selectedBackupProfileId) ?? null;
-  const backupEntityNamePrefix =
-    selectedBackupRoom?.entityNamePrefix || selectedBackupDevice?.entityNamePrefix || undefined;
-  const backupEntityMappings = backupMapping ? undefined : selectedBackupRoom?.entityMappings;
-
-  const summarizeZones = (zones: ZoneBackup['zones']) => {
-    return zones.reduce(
-      (acc, zone) => {
-        if (zone.type === 'exclusion') {
-          acc.exclusion += 1;
-        } else if (zone.type === 'entry') {
-          acc.entry += 1;
-        } else {
-          acc.regular += 1;
-        }
-        return acc;
-      },
-      { regular: 0, exclusion: 0, entry: 0 }
-    );
-  };
-
-  const reloadZoneBackups = async (deviceId: string) => {
-    try {
-      const backupsRes = await fetchZoneBackups(deviceId);
-      setZoneBackups(backupsRes.backups ?? []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to refresh zone backups');
-    }
-  };
-
-  const handleCreateZoneBackup = async () => {
-    if (!selectedBackupDeviceId) {
-      setError('Select a device to back up zones.');
-      return;
-    }
-
-    if (!selectedBackupProfileId) {
-      setError('Device profile not found. Run entity discovery to sync the device.');
-      return;
-    }
-
-    if (!backupEntityNamePrefix && !backupMapping) {
-      setError('Entity name prefix is missing. Link the device to a room or re-sync entities.');
-      return;
-    }
-
-    setCreatingBackup(true);
+  const create = async () => {
+    const problem = target();
+    if (problem) return toast.show(problem, { tone: 'danger' });
+    setCreating(true);
     try {
       await createZoneBackup({
-        deviceId: selectedBackupDeviceId,
-        profileId: selectedBackupProfileId,
-        entityNamePrefix: backupEntityNamePrefix,
-        entityMappings: backupEntityMappings,
+        deviceId,
+        profileId,
+        entityNamePrefix,
+        entityMappings,
       });
-      await reloadZoneBackups(selectedBackupDeviceId);
-      setSuccess('Zone backup created.');
-      setTimeout(() => setSuccess(null), 3000);
+      await reload();
+      toast.show('Zone backup created.', { tone: 'success' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create zone backup');
+      toast.show(messageOf(err, 'Failed to create zone backup'), {
+        tone: 'danger',
+      });
     } finally {
-      setCreatingBackup(false);
+      setCreating(false);
     }
   };
 
-  const handleRestoreZoneBackup = async (backup: ZoneBackup) => {
-    if (!selectedBackupDeviceId) {
-      setError('Select a device before restoring.');
-      return;
-    }
-
-    if (!selectedBackupProfileId) {
-      setError('Device profile not found. Run entity discovery to sync the device.');
-      return;
-    }
-
-    if (!backupEntityNamePrefix && !backupMapping) {
-      setError('Entity name prefix is missing. Link the device to a room or re-sync entities.');
-      return;
-    }
-
-    setRestoringBackupId(backup.id);
+  const restore = async (backup: ZoneBackup) => {
+    const problem = target();
+    if (problem) return toast.show(problem, { tone: 'danger' });
+    setRestoringId(backup.id);
     try {
       const result = await restoreZoneBackup(backup.id, {
-        deviceId: selectedBackupDeviceId,
-        profileId: selectedBackupProfileId,
-        entityNamePrefix: backupEntityNamePrefix,
-        entityMappings: backupEntityMappings,
+        deviceId,
+        profileId,
+        entityNamePrefix,
+        entityMappings,
       });
-
-      if (!result.ok) {
-        setError('Restore completed with errors. Check warnings and try again.');
-      } else if (result.warnings && result.warnings.length > 0) {
-        setSuccess(`Restore completed with ${result.warnings.length} warning(s).`);
-        setTimeout(() => setSuccess(null), 4000);
-      } else {
-        setSuccess('Backup restored as polygon zones.');
-        setTimeout(() => setSuccess(null), 3000);
-      }
+      if (!result.ok)
+        toast.show(
+          'Restore completed with errors. Check warnings and try again.',
+          { tone: 'danger' },
+        );
+      else if (result.warnings && result.warnings.length > 0)
+        toast.show(
+          `Restore completed with ${result.warnings.length} warning(s).`,
+          { tone: 'warning' },
+        );
+      else toast.show('Backup restored as polygon zones.', { tone: 'success' });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to restore zone backup');
+      toast.show(messageOf(err, 'Failed to restore zone backup'), {
+        tone: 'danger',
+      });
     } finally {
-      setRestoringBackupId(null);
+      setRestoringId(null);
     }
   };
 
-  const handleDeleteZoneBackup = async (backupId: string) => {
-    if (!confirm('Delete this zone backup?')) return;
-    setDeletingBackupId(backupId);
+  const remove = async () => {
+    if (!deleting) return;
+    setDeletingBusy(true);
     try {
-      await deleteZoneBackup(backupId);
-      setZoneBackups((prev) => prev.filter((entry) => entry.id !== backupId));
-      setSuccess('Zone backup deleted.');
-      setTimeout(() => setSuccess(null), 3000);
+      await deleteZoneBackup(deleting.id);
+      setBackups((current) =>
+        current.filter((entry) => entry.id !== deleting.id),
+      );
+      toast.show('Zone backup deleted.', { tone: 'success' });
+      setDeleting(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete zone backup');
+      toast.show(messageOf(err, 'Failed to delete zone backup'), {
+        tone: 'danger',
+      });
     } finally {
-      setDeletingBackupId(null);
+      setDeletingBusy(false);
     }
   };
 
-  const downloadJson = (filename: string, data: unknown) => {
-    const jsonString = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonString], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
+  const download = (backup: ZoneBackup) =>
+    downloadJson(
+      `zone_backup_${fileSafeName(backup.deviceName || device?.name || backup.deviceId)}_${fileTimestamp(new Date(backup.createdAt))}.json`,
+      backup,
+    );
 
-  const handleDownloadBackup = (backup: ZoneBackup) => {
-    const timestamp = new Date(backup.createdAt)
-      .toISOString()
-      .replace(/T/, '_')
-      .replace(/\..+/, '')
-      .replace(/:/g, '')
-      .slice(0, 17);
-    const labelBase =
-      backup.deviceName ||
-      selectedBackupDevice?.name ||
-      backup.deviceId;
-    const sanitized = labelBase.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    downloadJson(`zone_backup_${sanitized}_${timestamp}.json`, backup);
-  };
-
-  const handleDownloadAllBackups = () => {
-    if (zoneBackups.length === 0) {
-      setError('No backups available to download.');
-      return;
-    }
-    const timestamp = new Date().toISOString()
-      .replace(/T/, '_')
-      .replace(/\..+/, '')
-      .replace(/:/g, '')
-      .slice(0, 17);
-    downloadJson(`zone_backups_${timestamp}.json`, { backups: zoneBackups });
-  };
-
-  const handleImportBackups = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.json,application/json';
-
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      setImportingBackups(true);
-      try {
-        const text = await file.text();
-        const payload = JSON.parse(text);
-        const result = await importZoneBackups(payload);
-        if (selectedBackupDeviceId) {
-          await reloadZoneBackups(selectedBackupDeviceId);
-        }
-        setSuccess(`Imported ${result.imported} backup(s).`);
-        setTimeout(() => setSuccess(null), 4000);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to import zone backups');
-      } finally {
-        setImportingBackups(false);
-      }
-    };
-
-    input.click();
-  };
-
-  // ==================== Custom Floor Handlers ====================
-  const resetFloorForm = () => {
-    setFloorLabel('');
-    setFloorEmoji('🎨');
-    setFloorColor('#808080');
-    setFloorCategory('other');
-    setFloorPattern('solid');
-  };
-
-  const handleCreateFloor = async () => {
-    if (!floorLabel.trim()) {
-      setError('Floor name is required');
-      return;
-    }
+  const importBackups = async () => {
+    setImporting(true);
     try {
-      const res = await createCustomFloor({
-        label: floorLabel.trim(),
-        emoji: floorEmoji,
-        color: floorColor,
-        category: floorCategory,
-        patternType: floorPattern,
+      const payload = await pickJsonFile();
+      if (payload === null) return;
+      const result = await importZoneBackups(payload);
+      await reload();
+      toast.show(`Imported ${result.imported} backup(s).`, { tone: 'success' });
+    } catch (err) {
+      toast.show(messageOf(err, 'Failed to import zone backups'), {
+        tone: 'danger',
       });
-      setCustomFloors((prev) => [...prev, res.floor]);
-      setShowFloorForm(false);
-      resetFloorForm();
-      setSuccess('Custom floor material created');
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create floor');
-    }
-  };
-
-  const handleDeleteFloor = async (id: string, label: string) => {
-    if (!confirm(`Delete custom floor "${label}"? This cannot be undone.`)) return;
-    try {
-      await deleteCustomFloor(id);
-      setCustomFloors((prev) => prev.filter((f) => f.id !== id));
-      setSuccess('Custom floor material deleted');
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete floor');
-    }
-  };
-
-  // ==================== Custom Furniture Handlers ====================
-  const resetFurnitureForm = () => {
-    setFurnitureLabel('');
-    setFurnitureCategory('all');
-    setFurnitureWidth(1000);
-    setFurnitureDepth(1000);
-    setFurnitureHeight(500);
-    setFurnitureColor('#6B7280');
-    setFurnitureShape('rectangle');
-  };
-
-  const handleCreateFurniture = async () => {
-    if (!furnitureLabel.trim()) {
-      setError('Furniture name is required');
-      return;
-    }
-    try {
-      const res = await createCustomFurniture({
-        label: furnitureLabel.trim(),
-        category: furnitureCategory,
-        defaultWidth: furnitureWidth,
-        defaultDepth: furnitureDepth,
-        defaultHeight: furnitureHeight,
-        color: furnitureColor,
-        shape: furnitureShape,
-      });
-      setCustomFurniture((prev) => [...prev, res.furniture]);
-      setShowFurnitureForm(false);
-      resetFurnitureForm();
-      setSuccess('Custom furniture type created');
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create furniture');
-    }
-  };
-
-  const handleDeleteFurniture = async (id: string, label: string) => {
-    if (!confirm(`Delete custom furniture "${label}"? This cannot be undone.`)) return;
-    try {
-      await deleteCustomFurniture(id);
-      setCustomFurniture((prev) => prev.filter((f) => f.id !== id));
-      setSuccess('Custom furniture type deleted');
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete furniture');
+    } finally {
+      setImporting(false);
     }
   };
 
   return (
-    <div className="min-h-full bg-slate-950">
-      <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6 sm:py-6">
-        {/* Header */}
-        <div className="mb-5 flex flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="group flex w-fit items-center gap-2 rounded-lg bg-slate-800/50 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:bg-slate-800 sm:px-4"
+    <Panel
+      title="Zone backups"
+      actions={
+        <>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={mdiImport}
+            busy={importing}
+            onClick={() => void importBackups()}
+          >
+            Import
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={mdiDownload}
+            disabled={backups.length === 0}
+            onClick={() =>
+              downloadJson(`zone_backups_${fileTimestamp()}.json`, { backups })
+            }
+          >
+            Download all
+          </Button>
+        </>
+      }
+    >
+      {loading ? (
+        <Skeleton className="h-28" />
+      ) : devices.length === 0 ? (
+        <p className="text-sm text-fg-muted">
+          No Everything Presence devices found.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field
+              label="Device"
+              htmlFor="backup-device"
+              help="Only Everything Presence devices are listed."
             >
-              <span className="inline-block transition-transform group-hover:-translate-x-0.5">←</span> Back
-            </button>
-          )}
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
-        </div>
-
-        {/* Tab Navigation */}
-        <div className="mb-6 flex gap-2 overflow-x-auto border-b border-slate-700/50 pb-2">
-          {SETTINGS_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => navigate(tabRoute(tab.id), { replace: true })}
-              className={`shrink-0 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                activeTab === tab.id
-                  ? 'bg-cyan-600 text-white'
-                  : 'bg-slate-800/50 text-slate-300 hover:bg-slate-800 hover:text-white'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Error Toast */}
-        {error && (
-          <div className="mb-6 rounded-xl border border-rose-500/50 bg-rose-500/10 px-6 py-3 text-rose-100">
-            {error}
-          </div>
-        )}
-
-        {/* Success Toast */}
-        {success && (
-          <div className="mb-6 rounded-xl border border-emerald-500/50 bg-emerald-500/10 px-6 py-3 text-emerald-100">
-            ✓ {success}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-16 text-slate-200">
-            <div
-              className="h-10 w-10 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-400"
-              aria-label="Loading"
-            />
-            <div className="text-sm text-slate-400">Loading rooms and custom assets…</div>
-          </div>
-        ) : (
-          <>
-            {activeTab === 'appearance' && (
-              <section className="rounded-xl border border-line bg-surface p-4 sm:p-6">
-                <h2 className="text-lg font-semibold text-fg">Theme</h2>
-                <p className="mb-4 mt-1 text-sm text-fg-muted">
-                  Match Home Assistant follows the light or dark setting of the screen you are using.
-                </p>
-                <ThemeSegmented />
-              </section>
-            )}
-
-            {/* Rooms Tab */}
-            {activeTab === 'rooms' && (
-              <div className="space-y-6">
-                {/* Room Management Section */}
-            <div className="rounded-xl border border-slate-700/50 bg-slate-900/50 p-4 sm:p-6">
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-lg font-semibold text-white">Room Management</h2>
-                <div className="grid grid-cols-1 gap-2 sm:flex">
-                  <button
-                    onClick={handleBackupAllRooms}
-                    disabled={rooms.length === 0}
-                    className="min-w-0 rounded-lg border border-purple-600/50 bg-purple-600/10 px-4 py-2 text-sm font-semibold text-purple-100 transition-all hover:bg-purple-600/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    title="Export all rooms to a single backup file"
-                  >
-                    💾 Backup All
-                  </button>
-                  <button
-                    onClick={handleImportRoom}
-                    className="min-w-0 rounded-lg border border-blue-600/50 bg-blue-600/10 px-4 py-2 text-sm font-semibold text-blue-100 transition-all hover:bg-blue-600/20"
-                    title="Import room configuration from JSON file"
-                  >
-                    📤 Import
-                  </button>
-                  <button
-                    onClick={handleClearDefaultRoom}
-                    disabled={!defaultRoomId || clearingDefaultRoom}
-                    className="min-w-0 rounded-lg border border-amber-600/50 bg-amber-600/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-all hover:bg-amber-600/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    title="Clear the default room selection"
-                  >
-                    {clearingDefaultRoom ? 'Clearing...' : 'Clear Default'}
-                  </button>
-                </div>
-              </div>
-
-            {rooms.length === 0 ? (
-              <div className="py-8 text-center text-slate-400">
-                No rooms configured. Use the "Add Device" wizard to create a room.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {rooms.map((room) => (
-                  <div
-                    key={room.id}
-                    className="flex flex-col gap-4 rounded-lg border border-slate-700/50 bg-slate-800/50 p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold text-white">
-                        {renamingRoomId === room.id ? (
-                          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
-                            <input
-                              type="text"
-                              value={renameValue}
-                              onChange={(e) => setRenameValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleSaveRename(room.id);
-                                } else if (e.key === 'Escape') {
-                                  handleCancelRename();
-                                }
-                              }}
-                              autoFocus
-                              className="col-span-2 min-w-0 rounded border border-cyan-500 bg-slate-700 px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-cyan-500 sm:col-span-1"
-                            />
-                            <button
-                              onClick={() => handleSaveRename(room.id)}
-                              className="rounded bg-cyan-600 px-2 py-1 text-xs font-semibold text-white hover:bg-cyan-500"
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={handleCancelRename}
-                              className="rounded bg-slate-600 px-2 py-1 text-xs font-semibold text-white hover:bg-slate-500"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="min-w-0 truncate">{room.name}</span>
-                            <button
-                              onClick={() => handleStartRename(room)}
-                              className="rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-white"
-                              title="Rename room"
-                            >
-                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                              </svg>
-                            </button>
-                          </>
-                        )}
-                        {defaultRoomId === room.id && renamingRoomId !== room.id && (
-                          <span className="rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-200">
-                            Default
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm text-slate-400">
-                        {room.deviceId ? 'Device linked' : 'No device linked'}
-                        {room.roomShell?.points && room.roomShell.points.length > 0 && (
-                          <span className="ml-2">· Room outline set</span>
-                        )}
-                        {room.furniture && room.furniture.length > 0 && (
-                          <span className="ml-2">· {room.furniture.length} furniture</span>
-                        )}
-                      </div>
-                      {room.entityMappings ? (
-                        <div className="text-xs text-emerald-400 mt-1">
-                          ✓ Entities synced ({room.entityMappings.autoMatchedCount || 0} auto-matched)
-                        </div>
-                      ) : room.deviceId ? (
-                        <div className="text-xs text-yellow-400 mt-1">
-                          ⚠ Entities not synced - consider re-syncing
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                      <button
-                        onClick={() => handleSetDefaultRoom(room)}
-                        disabled={defaultRoomId === room.id || updatingDefaultRoomId === room.id}
-                        className="min-w-0 rounded-lg border border-emerald-600/50 bg-emerald-600/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition-all hover:bg-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4"
-                        title="Set this room as the default for the live dashboard"
-                      >
-                        {defaultRoomId === room.id
-                          ? 'Default Room'
-                          : updatingDefaultRoomId === room.id
-                          ? 'Setting...'
-                          : 'Set Default'}
-                      </button>
-                      {room.deviceId && room.profileId && (
-                        <button
-                          onClick={() => handleStartSync(room)}
-                          className="min-w-0 rounded-lg border border-cyan-600/50 bg-cyan-600/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition-all hover:bg-cyan-600/20 sm:px-4"
-                          title="Re-discover and sync entity mappings"
-                        >
-                          🔄 Re-sync Entities
-                        </button>
-                      )}
-                      {room.deviceId && (
-                        <button
-                          onClick={() => handleUnlinkDevice(room)}
-                          disabled={unlinkingDeviceRoomId === room.id}
-                          className="min-w-0 rounded-lg border border-amber-600/50 bg-amber-600/10 px-3 py-2 text-sm font-semibold text-amber-100 transition-all hover:bg-amber-600/20 disabled:opacity-50 sm:px-4"
-                          title="Remove device from room while preserving room geometry and furniture"
-                        >
-                          {unlinkingDeviceRoomId === room.id ? 'Unlinking...' : '🔗 Unlink Device'}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleExportRoom(room)}
-                        className="min-w-0 rounded-lg border border-emerald-600/50 bg-emerald-600/10 px-3 py-2 text-sm font-semibold text-emerald-100 transition-all hover:bg-emerald-600/20 sm:px-4"
-                        title="Export room configuration to JSON file"
-                      >
-                        📥 Export
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRoom(room.id, room.name)}
-                        disabled={deletingRoomId === room.id}
-                        className="min-w-0 rounded-lg border border-rose-600 bg-rose-600/10 px-3 py-2 text-sm font-semibold text-rose-100 transition-all hover:bg-rose-600/20 disabled:opacity-50 sm:px-4"
-                      >
-                        {deletingRoomId === room.id ? 'Deleting...' : 'Delete'}
-                      </button>
-                    </div>
-                  </div>
+              <select
+                id="backup-device"
+                value={deviceId}
+                onChange={(event) => setDeviceId(event.target.value)}
+                className={INPUT}
+              >
+                {devices.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name}
+                  </option>
                 ))}
-              </div>
-            )}
-              </div>
-              </div>
-            )}
-
-            {/* Backups Tab */}
-            {activeTab === 'backups' && (
-              <div className="space-y-6">
-                {/* Zone Backups Section */}
-            <div className="rounded-xl border border-slate-700/50 bg-slate-900/50 p-4 sm:p-6">
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <h2 className="text-lg font-semibold text-white">Zone Backups</h2>
-                  <p className="text-sm text-slate-400">
-                    Back up rectangular zones and restore them as polygons after firmware updates.
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:flex">
-                  <button
-                    onClick={handleImportBackups}
-                    disabled={importingBackups}
-                    className="min-w-0 rounded-lg border border-blue-600/50 bg-blue-600/10 px-4 py-2 text-sm font-semibold text-blue-100 transition-all hover:bg-blue-600/20 disabled:opacity-50"
-                    title="Import zone backups from JSON file"
-                  >
-                    {importingBackups ? 'Importing...' : 'Import'}
-                  </button>
-                  <button
-                    onClick={handleDownloadAllBackups}
-                    disabled={zoneBackups.length === 0}
-                    className="min-w-0 rounded-lg border border-emerald-600/50 bg-emerald-600/10 px-4 py-2 text-sm font-semibold text-emerald-100 transition-all hover:bg-emerald-600/20 disabled:cursor-not-allowed disabled:opacity-50"
-                    title="Download all backups for the selected device"
-                  >
-                    Download All
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-300">Device</label>
-                  <select
-                    value={selectedBackupDeviceId}
-                    onChange={(e) => setSelectedBackupDeviceId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                  >
-                    <option value="">Select a device</option>
-                    {devices.map((device) => (
-                      <option key={device.id} value={device.id}>
-                        {device.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-slate-500">Only Everything Presence devices are listed.</p>
-                </div>
-                <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-3 text-xs text-slate-300">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-500">Profile</span>
-                    <span>{selectedBackupProfile?.label ?? 'Unknown'}</span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between">
-                    <span className="text-slate-500">Firmware</span>
-                    <span>{backupMapping?.firmwareVersion ?? selectedBackupDevice?.firmwareVersion ?? 'Unknown'}</span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between">
-                    <span className="text-slate-500">Entity mappings</span>
-                    <span className={backupMapping ? 'text-emerald-300' : 'text-amber-300'}>
-                      {backupMapping ? 'Synced' : 'Missing'}
-                    </span>
-                  </div>
-                  <div className="mt-2 text-[11px] text-slate-500">
-                    Backups read rectangular zones from the device. Restores convert them to polygons.
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                <button
-                  onClick={handleCreateZoneBackup}
-                  disabled={creatingBackup || !selectedBackupDeviceId}
-                  className="min-w-0 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {creatingBackup ? 'Backing up...' : 'Create Backup'}
-                </button>
-                <button
-                  onClick={() => selectedBackupDeviceId && reloadZoneBackups(selectedBackupDeviceId)}
-                  disabled={!selectedBackupDeviceId || loadingBackups}
-                  className="min-w-0 rounded-lg border border-slate-600/70 bg-slate-800 px-4 py-2 text-sm font-semibold text-slate-200 transition-all hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {loadingBackups ? 'Refreshing...' : 'Refresh'}
-                </button>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {!selectedBackupDeviceId && (
-                  <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-4 text-sm text-slate-400">
-                    Select a device to view available backups.
-                  </div>
+              </select>
+            </Field>
+            <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1.5 rounded-lg bg-surface-2 px-3 py-2.5 text-sm">
+              <dt className="text-fg-muted">Profile</dt>
+              <dd className="truncate text-right text-fg">
+                {profile?.label ?? 'Unknown'}
+              </dd>
+              <dt className="text-fg-muted">Firmware</dt>
+              <dd className="truncate text-right text-fg">
+                {mapping?.firmwareVersion ??
+                  device?.firmwareVersion ??
+                  'Unknown'}
+              </dd>
+              <dt className="text-fg-muted">Entity mappings</dt>
+              <dd className="text-right">
+                {mapping ? (
+                  <Badge tone="success">Synced</Badge>
+                ) : (
+                  <Badge tone="warning">Missing</Badge>
                 )}
-
-                {selectedBackupDeviceId && loadingBackups && (
-                  <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-4 text-sm text-slate-400">
-                    Loading backups...
-                  </div>
-                )}
-
-                {selectedBackupDeviceId && !loadingBackups && zoneBackups.length === 0 && (
-                  <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-4 text-sm text-slate-400">
-                    No backups yet. Create one before updating firmware.
-                  </div>
-                )}
-
-                {selectedBackupDeviceId && !loadingBackups && zoneBackups.length > 0 && (
-                  <div className="space-y-3">
-                    {zoneBackups.map((backup) => {
-                      const counts = summarizeZones(backup.zones);
-                      const labelCount = Object.keys(backup.zoneLabels ?? {}).length;
-                      return (
-                        <div
-                          key={backup.id}
-                          className="rounded-lg border border-slate-700/50 bg-slate-800/50 p-4"
-                        >
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="min-w-0">
-                              <div className="text-sm font-semibold text-slate-100">
-                                {new Date(backup.createdAt).toLocaleString()}
-                              </div>
-                              <div className="text-xs text-slate-400">
-                                Source: {backup.source}{backup.firmwareVersion ? ` · v${backup.firmwareVersion}` : ''}
-                              </div>
-                            </div>
-                            {labelCount > 0 && (
-                              <span className="rounded-full border border-slate-600/60 bg-slate-700/50 px-2 py-0.5 text-[10px] text-slate-200">
-                                {labelCount} label{labelCount === 1 ? '' : 's'}
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-400">
-                            <span>{counts.regular} zone{counts.regular === 1 ? '' : 's'}</span>
-                            <span>· {counts.exclusion} exclusion</span>
-                            <span>· {counts.entry} entry</span>
-                            <span>· {backup.zones.length} total</span>
-                          </div>
-                          <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                            <button
-                              onClick={() => handleRestoreZoneBackup(backup)}
-                              disabled={restoringBackupId === backup.id}
-                              className="min-w-0 rounded-lg bg-emerald-600/20 px-3 py-1.5 text-xs font-semibold text-emerald-100 transition-all hover:bg-emerald-600/30 disabled:opacity-50"
-                            >
-                              {restoringBackupId === backup.id ? 'Restoring...' : 'Restore as Polygon'}
-                            </button>
-                            <button
-                              onClick={() => handleDownloadBackup(backup)}
-                              className="min-w-0 rounded-lg border border-slate-600/70 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-all hover:bg-slate-700"
-                            >
-                              Download
-                            </button>
-                            <button
-                              onClick={() => handleDeleteZoneBackup(backup.id)}
-                              disabled={deletingBackupId === backup.id}
-                              className="min-w-0 rounded-lg border border-rose-600/50 bg-rose-600/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition-all hover:bg-rose-600/20 disabled:opacity-50"
-                            >
-                              {deletingBackupId === backup.id ? 'Deleting...' : 'Delete'}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-              </div>
-            )}
-
-            {/* Assets Tab */}
-            {activeTab === 'assets' && (
-              <div className="space-y-6">
-                {/* Custom Floor Materials Section */}
-            <div className="rounded-xl border border-slate-700/50 bg-slate-900/50 p-4 sm:p-6">
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-lg font-semibold text-white">Custom Floor Materials</h2>
-                <button
-                  onClick={() => setShowFloorForm(!showFloorForm)}
-                  className="rounded-lg border border-cyan-600/50 bg-cyan-600/10 px-4 py-2 text-sm font-semibold text-cyan-100 transition-all hover:bg-cyan-600/20"
-                >
-                  {showFloorForm ? 'Cancel' : '+ Add Floor'}
-                </button>
-              </div>
-
-              {showFloorForm && (
-                <div className="mb-4 space-y-3 rounded-lg border border-slate-600/50 bg-slate-800/50 p-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Name</label>
-                      <input
-                        type="text"
-                        value={floorLabel}
-                        onChange={(e) => setFloorLabel(e.target.value)}
-                        placeholder="e.g., Marble White"
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Emoji</label>
-                      <input
-                        type="text"
-                        value={floorEmoji}
-                        onChange={(e) => setFloorEmoji(e.target.value)}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Color</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="color"
-                          value={floorColor}
-                          onChange={(e) => setFloorColor(e.target.value)}
-                          className="h-10 w-14 cursor-pointer rounded border border-slate-600"
-                        />
-                        <input
-                          type="text"
-                          value={floorColor}
-                          onChange={(e) => setFloorColor(e.target.value)}
-                          className="flex-1 rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
-                      <select
-                        value={floorCategory}
-                        onChange={(e) => setFloorCategory(e.target.value as typeof floorCategory)}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                      >
-                        <option value="wood">Wood</option>
-                        <option value="carpet">Carpet</option>
-                        <option value="hard">Hard Floor</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Pattern</label>
-                      <select
-                        value={floorPattern}
-                        onChange={(e) => setFloorPattern(e.target.value as typeof floorPattern)}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
-                      >
-                        <option value="solid">Solid</option>
-                        <option value="stripes">Stripes</option>
-                        <option value="checker">Checker</option>
-                        <option value="dots">Dots</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="flex justify-stretch sm:justify-end">
-                    <button
-                      onClick={handleCreateFloor}
-                      className="w-full rounded-lg bg-cyan-600 px-6 py-2.5 text-sm font-semibold text-white transition-all hover:bg-cyan-500 sm:w-auto"
-                    >
-                      Create Floor
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {customFloors.length === 0 ? (
-                <div className="py-6 text-center text-slate-400">
-                  No custom floor materials. Add your own to use in the Room Builder.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {customFloors.map((floor) => (
-                    <div
-                      key={floor.id}
-                      className="flex flex-col gap-3 rounded-lg border border-slate-700/50 bg-slate-800/50 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div
-                          className="h-8 w-8 rounded"
-                          style={{ backgroundColor: floor.color }}
-                        />
-                        <div className="min-w-0">
-                          <div className="font-medium text-white">
-                            {floor.emoji} {floor.label}
-                          </div>
-                          <div className="text-xs text-slate-400">
-                            {floor.category} · {floor.patternType}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteFloor(floor.id, floor.label)}
-                        className="w-full rounded-lg border border-rose-600/50 bg-rose-600/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition-all hover:bg-rose-600/20 sm:w-auto"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Custom Furniture Types Section */}
-            <div className="rounded-xl border border-slate-700/50 bg-slate-900/50 p-4 sm:p-6">
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <h2 className="text-lg font-semibold text-white">Custom Furniture Types</h2>
-                <button
-                  onClick={() => setShowFurnitureForm(!showFurnitureForm)}
-                  className="rounded-lg border border-amber-600/50 bg-amber-600/10 px-4 py-2 text-sm font-semibold text-amber-100 transition-all hover:bg-amber-600/20"
-                >
-                  {showFurnitureForm ? 'Cancel' : '+ Add Furniture'}
-                </button>
-              </div>
-
-              {showFurnitureForm && (
-                <div className="mb-4 space-y-3 rounded-lg border border-slate-600/50 bg-slate-800/50 p-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Name</label>
-                      <input
-                        type="text"
-                        value={furnitureLabel}
-                        onChange={(e) => setFurnitureLabel(e.target.value)}
-                        placeholder="e.g., Bookshelf"
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Category</label>
-                      <select
-                        value={furnitureCategory}
-                        onChange={(e) => setFurnitureCategory(e.target.value as typeof furnitureCategory)}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      >
-                        <option value="all">All Rooms</option>
-                        <option value="bedroom">Bedroom</option>
-                        <option value="living-room">Living Room</option>
-                        <option value="office">Office</option>
-                        <option value="dining">Dining</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Width (mm)</label>
-                      <input
-                        type="number"
-                        value={furnitureWidth}
-                        onChange={(e) => setFurnitureWidth(Number(e.target.value))}
-                        min={100}
-                        max={10000}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Depth (mm)</label>
-                      <input
-                        type="number"
-                        value={furnitureDepth}
-                        onChange={(e) => setFurnitureDepth(Number(e.target.value))}
-                        min={100}
-                        max={10000}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Height (mm)</label>
-                      <input
-                        type="number"
-                        value={furnitureHeight}
-                        onChange={(e) => setFurnitureHeight(Number(e.target.value))}
-                        min={100}
-                        max={5000}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Shape</label>
-                      <select
-                        value={furnitureShape}
-                        onChange={(e) => setFurnitureShape(e.target.value as typeof furnitureShape)}
-                        className="w-full rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                      >
-                        <option value="rectangle">Rectangle</option>
-                        <option value="rounded">Rounded</option>
-                        <option value="circle">Circle</option>
-                        <option value="lshaped">L-Shaped</option>
-                      </select>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-sm font-medium text-slate-300 mb-1">Color</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="color"
-                          value={furnitureColor}
-                          onChange={(e) => setFurnitureColor(e.target.value)}
-                          className="h-10 w-14 cursor-pointer rounded border border-slate-600"
-                        />
-                        <input
-                          type="text"
-                          value={furnitureColor}
-                          onChange={(e) => setFurnitureColor(e.target.value)}
-                          className="flex-1 rounded-lg border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex justify-stretch sm:justify-end">
-                    <button
-                      onClick={handleCreateFurniture}
-                      className="w-full rounded-lg bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white transition-all hover:bg-amber-500 sm:w-auto"
-                    >
-                      Create Furniture
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {customFurniture.length === 0 ? (
-                <div className="py-6 text-center text-slate-400">
-                  No custom furniture types. Add your own to use in the Room Builder.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {customFurniture.map((furniture) => (
-                    <div
-                      key={furniture.id}
-                      className="flex flex-col gap-3 rounded-lg border border-slate-700/50 bg-slate-800/50 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div
-                          className="h-8 w-8 rounded flex items-center justify-center"
-                          style={{ backgroundColor: furniture.color }}
-                        >
-                          <span className="text-white text-xs font-bold">
-                            {furniture.shape === 'circle' ? '●' : furniture.shape === 'lshaped' ? 'L' : '■'}
-                          </span>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-medium text-white">{furniture.label}</div>
-                          <div className="text-xs text-slate-400">
-                            {furniture.category} · {furniture.defaultWidth}×{furniture.defaultDepth}mm · {furniture.shape}
-                          </div>
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteFurniture(furniture.id, furniture.label)}
-                        className="w-full rounded-lg border border-rose-600/50 bg-rose-600/10 px-3 py-1.5 text-xs font-semibold text-rose-100 transition-all hover:bg-rose-600/20 sm:w-auto"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-              </div>
-            )}
-
-            {/* Firmware Tab */}
-            {activeTab === 'firmware' && (
-              <div className="space-y-6">
-                <div className="rounded-xl border border-slate-700/50 bg-slate-900/50 p-4 sm:p-6">
-                  <h2 className="mb-4 text-lg font-semibold text-white">Firmware Updates</h2>
-                  <p className="mb-4 text-sm text-slate-400">
-                    Update your Everything Presence devices with firmware downloaded through this local proxy.
-                    This helps ESP devices that have trouble with HTTPS due to memory constraints.
-                  </p>
-                  <FirmwareUpdateSection
-                    onError={(err) => setError(err)}
-                    onSuccess={(msg) => {
-                      setSuccess(msg);
-                      setTimeout(() => setSuccess(null), 5000);
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Troubleshooting Tab */}
-            {activeTab === 'troubleshooting' && (
-              <div className="space-y-6">
-                <TroubleshootingCard />
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Entity Re-sync Modal */}
-      {isSyncing && syncingRoom && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4">
-          <div className="flex h-[88dvh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-slate-900 shadow-2xl sm:h-[85vh] sm:max-h-[700px] sm:rounded-xl">
-            <EntityDiscovery
-              deviceId={syncingRoom.deviceId!}
-              profileId={syncingRoom.profileId!}
-              deviceName={syncingRoom.entityNamePrefix || syncingRoom.name}
-              onComplete={handleSyncComplete}
-              onCancel={handleSyncCancel}
+              </dd>
+            </dl>
+          </div>
+          <p className="text-xs text-fg-muted">
+            A backup reads the rectangular zones from the device. A restore
+            writes them back as polygon zones.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
+              icon={mdiBackupRestore}
+              busy={creating}
+              disabled={!deviceId}
+              onClick={() => void create()}
+            >
+              Back up now
+            </Button>
+            <IconButton
+              icon={mdiRefresh}
+              label="Refresh backups"
+              variant="outline"
+              busy={loadingBackups}
+              disabled={!deviceId || loadingBackups}
+              onClick={() => void reload()}
             />
           </div>
+          {loadingBackups && backups.length === 0 ? (
+            <Skeleton className="h-16" />
+          ) : backups.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-sm text-fg-muted">
+              No backups yet. Create one before updating firmware.
+            </p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
+              {backups.map((backup) => {
+                const counts = { regular: 0, exclusion: 0, entry: 0 };
+                for (const zone of backup.zones) counts[zone.type] += 1;
+                const labelCount = Object.keys(backup.zoneLabels ?? {}).length;
+                return (
+                  <li
+                    key={backup.id}
+                    className="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-fg">
+                        {new Date(backup.createdAt).toLocaleString()}
+                      </div>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+                        <span>
+                          {counts.regular} zone{counts.regular === 1 ? '' : 's'}{' '}
+                          · {counts.exclusion} exclusion · {counts.entry} entry
+                        </span>
+                        <span>
+                          {backup.source}
+                          {backup.firmwareVersion
+                            ? ` · v${backup.firmwareVersion}`
+                            : ''}
+                        </span>
+                        {labelCount > 0 && (
+                          <Badge>
+                            {labelCount} label{labelCount === 1 ? '' : 's'}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 self-end sm:self-auto">
+                      <IconButton
+                        icon={mdiBackupRestore}
+                        label="Restore as polygon zones"
+                        busy={restoringId === backup.id}
+                        disabled={restoringId !== null}
+                        onClick={() => void restore(backup)}
+                      />
+                      <IconButton
+                        icon={mdiDownload}
+                        label="Download"
+                        onClick={() => download(backup)}
+                      />
+                      <IconButton
+                        icon={mdiDeleteOutline}
+                        label="Delete backup"
+                        onClick={() => setDeleting(backup)}
+                        className="hover:text-danger-ink"
+                      />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
-      <div className="mt-8 border-t border-slate-800/80 pt-4 text-center text-xs text-slate-500">
-        Zone Configurator v{appVersion}
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Delete this zone backup?"
+        body={
+          deleting
+            ? `The backup from ${new Date(deleting.createdAt).toLocaleString()} is deleted. This cannot be undone.`
+            : null
+        }
+        confirmLabel="Delete backup"
+        tone="danger"
+        busy={deletingBusy}
+        onConfirm={() => void remove()}
+        onCancel={() => setDeleting(null)}
+      />
+    </Panel>
+  );
+};
+
+const FLOOR_DEFAULTS = {
+  label: '',
+  emoji: '🎨',
+  color: '#808080',
+  category: 'other',
+  patternType: 'solid',
+} as const satisfies Omit<CustomFloorMaterial, 'id' | 'createdAt'>;
+
+const FURNITURE_DEFAULTS = {
+  label: '',
+  category: 'all',
+  defaultWidth: 1000,
+  defaultDepth: 1000,
+  defaultHeight: 500,
+  color: '#6B7280',
+  shape: 'rectangle',
+} as const satisfies Omit<CustomFurnitureType, 'id' | 'createdAt'>;
+
+const SHAPE_ICON: Record<CustomFurnitureType['shape'], string> = {
+  rectangle: mdiSquare,
+  rounded: mdiSquareRounded,
+  circle: mdiCircle,
+  lshaped: mdiVectorPolyline,
+};
+
+type AssetDelete =
+  | { kind: 'floor'; id: string; label: string }
+  | { kind: 'furniture'; id: string; label: string };
+
+const ColorField = ({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) => (
+  <div className="flex gap-2">
+    <input
+      type="color"
+      aria-label="Pick color"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="h-10 w-14 shrink-0 cursor-pointer rounded-lg border border-line bg-surface"
+    />
+    <input
+      id={id}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className={INPUT}
+    />
+  </div>
+);
+
+const AssetsSection = () => {
+  const toast = useToast();
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [floors, setFloors] = useState<CustomFloorMaterial[]>([]);
+  const [furniture, setFurniture] = useState<CustomFurnitureType[]>([]);
+  const [floorForm, setFloorForm] = useState<Omit<
+    CustomFloorMaterial,
+    'id' | 'createdAt'
+  > | null>(null);
+  const [furnitureForm, setFurnitureForm] = useState<Omit<
+    CustomFurnitureType,
+    'id' | 'createdAt'
+  > | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<AssetDelete | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [floorsRes, furnitureRes] = await Promise.all([
+        fetchCustomFloors(),
+        fetchCustomFurniture(),
+      ]);
+      setFloors(floorsRes.floors);
+      setFurniture(furnitureRes.furniture);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(messageOf(err, 'Failed to load custom assets'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: load once on mount.
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const createFloor = async () => {
+    if (!floorForm) return;
+    if (!floorForm.label.trim())
+      return toast.show('Floor name is required', { tone: 'danger' });
+    try {
+      const res = await createCustomFloor({
+        ...floorForm,
+        label: floorForm.label.trim(),
+      });
+      setFloors((current) => [...current, res.floor]);
+      setFloorForm(null);
+      toast.show('Custom floor material created', { tone: 'success' });
+    } catch (err) {
+      toast.show(messageOf(err, 'Failed to create floor'), { tone: 'danger' });
+    }
+  };
+
+  const createFurniture = async () => {
+    if (!furnitureForm) return;
+    if (!furnitureForm.label.trim())
+      return toast.show('Furniture name is required', { tone: 'danger' });
+    try {
+      const res = await createCustomFurniture({
+        ...furnitureForm,
+        label: furnitureForm.label.trim(),
+      });
+      setFurniture((current) => [...current, res.furniture]);
+      setFurnitureForm(null);
+      toast.show('Custom furniture type created', { tone: 'success' });
+    } catch (err) {
+      toast.show(messageOf(err, 'Failed to create furniture'), {
+        tone: 'danger',
+      });
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { kind, id } = pendingDelete;
+    try {
+      if (kind === 'floor') {
+        await deleteCustomFloor(id);
+        setFloors((current) => current.filter((entry) => entry.id !== id));
+        toast.show('Custom floor material deleted', { tone: 'success' });
+      } else {
+        await deleteCustomFurniture(id);
+        setFurniture((current) => current.filter((entry) => entry.id !== id));
+        toast.show('Custom furniture type deleted', { tone: 'success' });
+      }
+    } catch (err) {
+      toast.show(messageOf(err, `Failed to delete ${kind}`), {
+        tone: 'danger',
+      });
+    } finally {
+      setPendingDelete(null);
+    }
+  };
+
+  if (loading)
+    return (
+      <>
+        <Skeleton className="h-28" />
+        <Skeleton className="h-28" />
+      </>
+    );
+  if (loadError)
+    return (
+      <Note
+        tone="danger"
+        title="Custom assets could not be loaded"
+        actions={
+          <Button size="sm" onClick={() => void load()}>
+            Retry
+          </Button>
+        }
+      >
+        {loadError}
+      </Note>
+    );
+
+  const addToggle = (open: boolean, label: string, onToggle: () => void) => (
+    <Button
+      size="sm"
+      variant="ghost"
+      icon={open ? mdiClose : mdiPlus}
+      onClick={onToggle}
+    >
+      {open ? 'Cancel' : label}
+    </Button>
+  );
+
+  return (
+    <>
+      <Panel
+        title="Floor materials"
+        actions={addToggle(floorForm !== null, 'Add floor', () =>
+          setFloorForm(floorForm ? null : { ...FLOOR_DEFAULTS }),
+        )}
+      >
+        {floorForm && (
+          <form
+            className="mb-4 grid gap-3 rounded-lg bg-surface-2 p-3 sm:grid-cols-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createFloor();
+            }}
+          >
+            <Field label="Name" htmlFor="floor-label">
+              <input
+                id="floor-label"
+                value={floorForm.label}
+                placeholder="Marble white"
+                onChange={(event) =>
+                  setFloorForm({ ...floorForm, label: event.target.value })
+                }
+                className={INPUT}
+              />
+            </Field>
+            <Field label="Emoji" htmlFor="floor-emoji">
+              <input
+                id="floor-emoji"
+                value={floorForm.emoji}
+                onChange={(event) =>
+                  setFloorForm({ ...floorForm, emoji: event.target.value })
+                }
+                className={INPUT}
+              />
+            </Field>
+            <Field label="Color" htmlFor="floor-color">
+              <ColorField
+                id="floor-color"
+                value={floorForm.color}
+                onChange={(color) => setFloorForm({ ...floorForm, color })}
+              />
+            </Field>
+            <Field label="Category" htmlFor="floor-category">
+              <select
+                id="floor-category"
+                value={floorForm.category}
+                onChange={(event) =>
+                  setFloorForm({
+                    ...floorForm,
+                    category: event.target
+                      .value as CustomFloorMaterial['category'],
+                  })
+                }
+                className={INPUT}
+              >
+                <option value="wood">Wood</option>
+                <option value="carpet">Carpet</option>
+                <option value="hard">Hard floor</option>
+                <option value="other">Other</option>
+              </select>
+            </Field>
+            <Field label="Pattern" htmlFor="floor-pattern">
+              <select
+                id="floor-pattern"
+                value={floorForm.patternType}
+                onChange={(event) =>
+                  setFloorForm({
+                    ...floorForm,
+                    patternType: event.target
+                      .value as CustomFloorMaterial['patternType'],
+                  })
+                }
+                className={INPUT}
+              >
+                <option value="solid">Solid</option>
+                <option value="stripes">Stripes</option>
+                <option value="checker">Checker</option>
+                <option value="dots">Dots</option>
+              </select>
+            </Field>
+            <div className="flex items-end justify-end">
+              <Button type="submit" variant="primary">
+                Create floor
+              </Button>
+            </div>
+          </form>
+        )}
+        {floors.length === 0 ? (
+          <p className="text-sm text-fg-muted">
+            No custom floor materials. Add your own to use in the room layout.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-line">
+            {floors.map((floor) => (
+              <li key={floor.id} className="flex items-center gap-3 py-2">
+                <span
+                  className="h-8 w-8 shrink-0 rounded-md border border-line"
+                  style={{ backgroundColor: floor.color }}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-fg">
+                    {floor.emoji} {floor.label}
+                  </div>
+                  <div className="text-xs capitalize text-fg-muted">
+                    {floor.category} · {floor.patternType}
+                  </div>
+                </div>
+                <IconButton
+                  icon={mdiDeleteOutline}
+                  label={`Delete ${floor.label}`}
+                  onClick={() =>
+                    setPendingDelete({
+                      kind: 'floor',
+                      id: floor.id,
+                      label: floor.label,
+                    })
+                  }
+                  className="hover:text-danger-ink"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+
+      <Panel
+        title="Furniture types"
+        actions={addToggle(furnitureForm !== null, 'Add furniture', () =>
+          setFurnitureForm(furnitureForm ? null : { ...FURNITURE_DEFAULTS }),
+        )}
+      >
+        {furnitureForm && (
+          <form
+            className="mb-4 grid gap-3 rounded-lg bg-surface-2 p-3 sm:grid-cols-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void createFurniture();
+            }}
+          >
+            <Field label="Name" htmlFor="furniture-label">
+              <input
+                id="furniture-label"
+                value={furnitureForm.label}
+                placeholder="Bookshelf"
+                onChange={(event) =>
+                  setFurnitureForm({
+                    ...furnitureForm,
+                    label: event.target.value,
+                  })
+                }
+                className={INPUT}
+              />
+            </Field>
+            <Field label="Category" htmlFor="furniture-category">
+              <select
+                id="furniture-category"
+                value={furnitureForm.category}
+                onChange={(event) =>
+                  setFurnitureForm({
+                    ...furnitureForm,
+                    category: event.target
+                      .value as CustomFurnitureType['category'],
+                  })
+                }
+                className={INPUT}
+              >
+                <option value="all">All rooms</option>
+                <option value="bedroom">Bedroom</option>
+                <option value="living-room">Living room</option>
+                <option value="office">Office</option>
+                <option value="dining">Dining</option>
+              </select>
+            </Field>
+            {(
+              [
+                ['defaultWidth', 'Width', 10000],
+                ['defaultDepth', 'Depth', 10000],
+                ['defaultHeight', 'Height', 5000],
+              ] as const
+            ).map(([key, label, max]) => (
+              <Field
+                key={key}
+                label={label}
+                unit="mm"
+                htmlFor={`furniture-${key}`}
+              >
+                <input
+                  id={`furniture-${key}`}
+                  type="number"
+                  inputMode="numeric"
+                  min={100}
+                  max={max}
+                  value={furnitureForm[key]}
+                  onChange={(event) =>
+                    setFurnitureForm({
+                      ...furnitureForm,
+                      [key]: Number(event.target.value),
+                    })
+                  }
+                  className={cx(INPUT, 'tabular-nums')}
+                />
+              </Field>
+            ))}
+            <Field label="Shape" htmlFor="furniture-shape">
+              <select
+                id="furniture-shape"
+                value={furnitureForm.shape}
+                onChange={(event) =>
+                  setFurnitureForm({
+                    ...furnitureForm,
+                    shape: event.target.value as CustomFurnitureType['shape'],
+                  })
+                }
+                className={INPUT}
+              >
+                <option value="rectangle">Rectangle</option>
+                <option value="rounded">Rounded</option>
+                <option value="circle">Circle</option>
+                <option value="lshaped">L-shaped</option>
+              </select>
+            </Field>
+            <Field label="Color" htmlFor="furniture-color">
+              <ColorField
+                id="furniture-color"
+                value={furnitureForm.color}
+                onChange={(color) =>
+                  setFurnitureForm({ ...furnitureForm, color })
+                }
+              />
+            </Field>
+            <div className="flex items-end justify-end sm:col-span-2">
+              <Button type="submit" variant="primary">
+                Create furniture
+              </Button>
+            </div>
+          </form>
+        )}
+        {furniture.length === 0 ? (
+          <p className="text-sm text-fg-muted">
+            No custom furniture types. Add your own to use in the room layout.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-line">
+            {furniture.map((item) => (
+              <li key={item.id} className="flex items-center gap-3 py-2">
+                <span
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-line bg-surface-2"
+                  style={{ color: item.color }}
+                >
+                  <Icon path={SHAPE_ICON[item.shape]} size={20} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-fg">
+                    {item.label}
+                  </div>
+                  <div className="text-xs text-fg-muted">
+                    {item.category} · {item.defaultWidth}×{item.defaultDepth} mm
+                    · {item.shape}
+                  </div>
+                </div>
+                <IconButton
+                  icon={mdiDeleteOutline}
+                  label={`Delete ${item.label}`}
+                  onClick={() =>
+                    setPendingDelete({
+                      kind: 'furniture',
+                      id: item.id,
+                      label: item.label,
+                    })
+                  }
+                  className="hover:text-danger-ink"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`Delete "${pendingDelete?.label}"?`}
+        body={`The custom ${pendingDelete?.kind === 'floor' ? 'floor material' : 'furniture type'} is deleted. This cannot be undone.`}
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setPendingDelete(null)}
+      />
+    </>
+  );
+};
+
+/** Keeps the route section and the scroll position in step: the route scrolls its section into view, scrolling replaces the route. */
+const scrollToSection = (
+  top: HTMLElement | null,
+  target: SettingsSection,
+  behavior: ScrollBehavior,
+) =>
+  (target === SECTIONS[0].id
+    ? top
+    : document.getElementById(anchorId(target))
+  )?.scrollIntoView({ block: 'start', behavior });
+
+const PIN_MS = 2500;
+
+const useSectionSync = (section: SettingsSection) => {
+  const observed = useRef<SettingsSection | null>(null);
+  const mounted = useRef(false);
+  const topRef = useRef<HTMLDivElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  // Sections above load asynchronously; until the user scrolls, re-align the routed section as they grow or shrink.
+  const pin = useRef<{ section: SettingsSection; until: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (observed.current === section) return;
+    scrollToSection(
+      topRef.current,
+      section,
+      mounted.current ? 'smooth' : 'auto',
+    );
+    pin.current = { section, until: performance.now() + PIN_MS };
+    mounted.current = true;
+  }, [section]);
+
+  useEffect(() => {
+    const top = topRef.current;
+    if (!top) return;
+    const unpin = () => {
+      pin.current = null;
+    };
+    const resize = new ResizeObserver(() => {
+      if (pin.current && performance.now() < pin.current.until)
+        scrollToSection(top, pin.current.section, 'auto');
+    });
+    resize.observe(top);
+    for (const type of ['wheel', 'touchstart', 'keydown'])
+      window.addEventListener(type, unpin, { capture: true, passive: true });
+    return () => {
+      resize.disconnect();
+      for (const type of ['wheel', 'touchstart', 'keydown'])
+        window.removeEventListener(type, unpin, { capture: true });
+    };
+  }, []);
+
+  useEffect(() => {
+    const sections = SECTIONS.map(({ id }) =>
+      document.getElementById(anchorId(id)),
+    ).filter((element): element is HTMLElement => element !== null);
+    const end = endRef.current;
+    let atEnd = false;
+    const pick = () => {
+      const band = window.innerHeight * 0.3;
+      let current: SettingsSection = SECTIONS[0].id;
+      for (const element of sections)
+        if (element.getBoundingClientRect().top <= band)
+          current = element.dataset.section as SettingsSection;
+      if (atEnd) current = SECTIONS[SECTIONS.length - 1].id;
+      if (current === observed.current) return;
+      observed.current = current;
+      navigate({ name: 'settings', section: current }, { replace: true });
+    };
+    const observer = new IntersectionObserver(pick, {
+      rootMargin: '0px 0px -70% 0px',
+    });
+    const endObserver = new IntersectionObserver(
+      ([entry]) => {
+        atEnd = entry.isIntersecting;
+        pick();
+      },
+      { threshold: [1] },
+    );
+    for (const element of sections) observer.observe(element);
+    if (end) endObserver.observe(end);
+    return () => {
+      observer.disconnect();
+      endObserver.disconnect();
+    };
+  }, []);
+
+  const jump = (target: SettingsSection) => {
+    observed.current = null;
+    if (target === section) scrollToSection(topRef.current, target, 'smooth');
+  };
+
+  return { topRef, endRef, jump };
+};
+
+export interface SettingsPageProps {
+  section: SettingsSection;
+}
+
+export const SettingsPage = ({ section }: SettingsPageProps) => {
+  const { appVersion } = useAppData();
+  const toast = useToast();
+  const { topRef, endRef, jump } = useSectionSync(section);
+
+  const link = (id: SettingsSection) => ({
+    href: toHash({ name: 'settings', section: id }),
+    'aria-current': id === section ? ('location' as const) : undefined,
+    onClick: () => jump(id),
+  });
+
+  return (
+    <div
+      ref={topRef}
+      className="mx-auto flex w-full max-w-[64rem] gap-8 px-4 pb-10 pt-6 sm:px-6"
+    >
+      <nav
+        aria-label="Settings sections"
+        className="hidden w-48 shrink-0 lg:block"
+      >
+        <ul className="sticky top-6 flex flex-col gap-0.5">
+          {SECTIONS.map(({ id, label, icon }) => (
+            <li key={id}>
+              <a
+                {...link(id)}
+                className={cx(
+                  'flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                  id === section
+                    ? 'bg-accent-tint font-medium text-fg'
+                    : 'text-fg-muted hover:bg-surface-2 hover:text-fg',
+                )}
+              >
+                <Icon
+                  path={icon}
+                  size={20}
+                  className={id === section ? 'text-accent-ink' : undefined}
+                />
+                {label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <div className="min-w-0 max-w-3xl flex-1">
+        <h1 className="font-display text-2xl font-semibold text-fg">
+          Settings
+        </h1>
+        <nav
+          aria-label="Settings sections"
+          className="sticky top-0 z-20 -mx-4 mt-2 border-b border-line bg-bg/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 lg:hidden"
+        >
+          <ul className="flex gap-2 overflow-x-auto [scrollbar-width:none]">
+            {SECTIONS.map(({ id, label }) => (
+              <li key={id} className="shrink-0">
+                <a
+                  {...link(id)}
+                  className={cx(
+                    'inline-flex h-8 items-center rounded-full border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent [@media(pointer:coarse)]:h-10',
+                    id === section
+                      ? 'border-accent/50 bg-accent-tint font-medium text-accent-ink'
+                      : 'border-line text-fg-muted hover:bg-surface-2',
+                  )}
+                >
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <div className="mt-6 flex flex-col gap-10">
+          <SectionBlock
+            id="appearance"
+            title="Appearance"
+            description="Match Home Assistant follows the light or dark setting of the screen you are using."
+          >
+            <div>
+              <ThemeSegmented />
+            </div>
+          </SectionBlock>
+
+          <SectionBlock
+            id="backups"
+            title="Backups"
+            description="Back up rectangular zones and restore them as polygons after firmware updates. Room backups live on the Rooms screen."
+          >
+            <BackupsSection />
+          </SectionBlock>
+
+          <SectionBlock
+            id="assets"
+            title="Custom assets"
+            description="Floor materials and furniture types for the room layout."
+          >
+            <AssetsSection />
+          </SectionBlock>
+
+          <SectionBlock
+            id="firmware"
+            title="Firmware"
+            description="Update Everything Presence devices with firmware served by this add-on, which helps devices that struggle with HTTPS downloads."
+          >
+            <FirmwareUpdateSection
+              onError={(message) => toast.show(message, { tone: 'danger' })}
+              onSuccess={(message) =>
+                toast.show(message, { tone: 'success', durationMs: 5000 })
+              }
+            />
+          </SectionBlock>
+
+          <SectionBlock
+            id="troubleshooting"
+            title="Troubleshooting"
+            description="Record logs while you reproduce a problem, then share one file."
+          >
+            <TroubleshootingCard />
+          </SectionBlock>
+        </div>
+        <div ref={endRef} className="h-px" />
+        {appVersion && (
+          <p className="mt-8 text-center text-xs text-fg-subtle lg:hidden">
+            Zone Configurator v{appVersion}
+          </p>
+        )}
       </div>
     </div>
   );
 };
-
-

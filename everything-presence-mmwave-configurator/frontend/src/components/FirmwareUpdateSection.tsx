@@ -1,47 +1,132 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  fetchDevices,
-  fetchFirmwareSettings,
-  updateFirmwareSettings,
-  prepareFirmware,
-  triggerFirmwareUpdate,
-  fetchFirmwareCache,
-  fetchProfiles,
-  deleteFirmwareCacheEntry,
-  getDeviceConfig,
-  getAvailableUpdates,
+  mdiCheck,
+  mdiCheckCircle,
+  mdiChevronRight,
+  mdiClose,
+  mdiCloudDownloadOutline,
+  mdiDeleteOutline,
+  mdiRadar,
+} from '@mdi/js';
+import type React from 'react';
+import {
+  Fragment,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react';
+import {
   autoPrepare,
-  fetchFirmwareUpdateStatus,
-  fetchFirmwareMigrationState,
-  saveFirmwareMigrationState,
   clearFirmwareMigrationState,
-  fetchDeviceReadiness,
-  ingressAware,
-  fetchZoneBackups,
   createZoneBackup,
+  deleteFirmwareCacheEntry,
+  fetchDeviceReadiness,
+  fetchDevices,
+  fetchFirmwareCache,
+  fetchFirmwareMigrationState,
+  fetchFirmwareSettings,
+  fetchFirmwareUpdateStatus,
+  fetchProfiles,
+  fetchZoneBackups,
+  getAvailableUpdates,
+  getDeviceConfig,
+  ingressAware,
+  prepareFirmware,
   restoreZoneBackup,
+  saveFirmwareMigrationState,
+  triggerFirmwareUpdate,
+  updateFirmwareSettings,
 } from '../api/client';
 import {
-  DiscoveredDevice,
-  CachedFirmwareEntry,
-  FirmwareUpdateStatus,
-  DeviceConfig,
+  type DeviceMapping,
+  discoverAndSaveMapping,
+} from '../api/deviceMappings';
+import type {
   AvailableUpdate,
-  FirmwareValidation,
-  FirmwareUpdateEntityStatus,
+  CachedFirmwareEntry,
+  DeviceConfig,
   DeviceProfile,
-  ZoneBackup,
+  DiscoveredDevice,
+  FirmwareUpdateEntityStatus,
+  FirmwareUpdateStatus,
+  FirmwareValidation,
   Zone,
-  ZoneRect,
+  ZoneBackup,
   ZonePolygon,
+  ZoneRect,
 } from '../api/types';
-import { useDeviceMappings } from '../contexts/DeviceMappingsContext';
-import { DeviceMapping, discoverAndSaveMapping } from '../api/deviceMappings';
 import { fetchPolygonZonesFromDevice } from '../api/zones';
-import { compareVersions, getZoneMigrationThreshold, requiresZoneMigration } from '../utils/firmware';
-import { resolveEntityPrefix } from '../utils/entityUtils';
-import { resolveZoneLimits } from '../utils/zoneCapabilities';
 import polygonMigrationGraphic from '../assets/polygon-migration.png';
+import { useDeviceMappings } from '../contexts/DeviceMappingsContext';
+import { resolveEntityPrefix } from '../utils/entityUtils';
+import {
+  compareVersions,
+  getZoneMigrationThreshold,
+  requiresZoneMigration,
+} from '../utils/firmware';
+import { resolveZoneLimits } from '../utils/zoneCapabilities';
+import {
+  Badge,
+  Button,
+  ChoiceList,
+  cx,
+  Field,
+  Icon,
+  IconButton,
+  Note,
+  Panel,
+  Tooltip,
+} from './primitives';
+
+const FIELD_INPUT =
+  'h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 disabled:cursor-not-allowed disabled:opacity-60 [@media(pointer:coarse)]:h-11';
+
+const Disclosure = ({
+  title,
+  open,
+  onToggle,
+  trailing,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  trailing?: ReactNode;
+  children: ReactNode;
+}) => {
+  const bodyId = useId();
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={onToggle}
+          className="-ml-1 flex min-h-11 flex-1 items-center gap-1.5 rounded-md px-1 text-left text-sm font-medium text-fg hover:text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Icon
+            path={mdiChevronRight}
+            size={20}
+            className={cx(
+              'text-fg-subtle transition-transform',
+              open && 'rotate-90',
+            )}
+          />
+          {title}
+        </button>
+        {trailing}
+      </div>
+      {open && (
+        <div id={bodyId} className="pb-4 pl-7 pt-1">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface FirmwareUpdateSectionProps {
   onError: (error: string) => void;
@@ -57,8 +142,10 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     'everything-presence-lite': '1.4.2',
   };
   const BRIDGE_FLASH_URL_BY_MODEL: Record<string, string> = {
-    'everything-presence-pro': 'https://docs.everythingsmart.io/flash/1.1.4/everything-presence-pro.html',
-    'everything-presence-lite': 'https://docs.everythingsmart.io/flash/1.4.2/everything-presence-lite.html',
+    'everything-presence-pro':
+      'https://docs.everythingsmart.io/flash/1.1.4/everything-presence-pro.html',
+    'everything-presence-lite':
+      'https://docs.everythingsmart.io/flash/1.4.2/everything-presence-lite.html',
   };
 
   const buildConfigUnavailableMessage =
@@ -71,7 +158,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
   }, [onError, onSuccess]);
 
   const migrationDebugEnabled =
-    typeof window !== 'undefined' && window.localStorage.getItem('ep_debug_migration') === '1';
+    typeof window !== 'undefined' &&
+    window.localStorage.getItem('ep_debug_migration') === '1';
   const debugMigration = useCallback(
     (message: string, payload?: unknown) => {
       if (!migrationDebugEnabled) return;
@@ -88,22 +176,51 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
   // Zone backup state (for migration flow)
   const [zoneBackups, setZoneBackups] = useState<ZoneBackup[]>([]);
-  const [backupMapping, setBackupMapping] = useState<DeviceMapping | null>(null);
+  const [backupMapping, setBackupMapping] = useState<DeviceMapping | null>(
+    null,
+  );
   const [creatingBackup, setCreatingBackup] = useState(false);
   const [restoringBackup, setRestoringBackup] = useState(false);
-  const [restoreWarnings, setRestoreWarnings] = useState<Array<{ entityId?: string; description: string; error: string }> | null>(null);
+  const [restoreWarnings, setRestoreWarnings] = useState<Array<{
+    entityId?: string;
+    description: string;
+    error: string;
+  }> | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const [lastBackupId, setLastBackupId] = useState<string | null>(null);
-  const [migrationPhase, setMigrationPhase] = useState<'idle' | 'prompt' | 'backing_up' | 'installing' | 'resync_wait' | 'resyncing' | 'restoring' | 'verifying' | 'complete' | 'error'>('idle');
-  const [migrationBackupId, setMigrationBackupId] = useState<string | null>(null);
+  const [migrationPhase, setMigrationPhase] = useState<
+    | 'idle'
+    | 'prompt'
+    | 'backing_up'
+    | 'installing'
+    | 'resync_wait'
+    | 'resyncing'
+    | 'restoring'
+    | 'verifying'
+    | 'complete'
+    | 'error'
+  >('idle');
+  const [migrationBackupId, setMigrationBackupId] = useState<string | null>(
+    null,
+  );
   const [migrationError, setMigrationError] = useState<string | null>(null);
-  const [migrationErrorStep, setMigrationErrorStep] = useState<'backup' | 'install' | 'resync' | 'restore' | 'verify' | null>(null);
-  const [migrationVerificationStatus, setMigrationVerificationStatus] = useState<'idle' | 'running' | 'success' | 'warning' | 'error'>('idle');
-  const [migrationVerificationMessage, setMigrationVerificationMessage] = useState<string | null>(null);
-  const [resyncStepMessage, setResyncStepMessage] = useState<string | null>(null);
+  const [migrationErrorStep, setMigrationErrorStep] = useState<
+    'backup' | 'install' | 'resync' | 'restore' | 'verify' | null
+  >(null);
+  const [migrationVerificationStatus, setMigrationVerificationStatus] =
+    useState<'idle' | 'running' | 'success' | 'warning' | 'error'>('idle');
+  const [migrationVerificationMessage, setMigrationVerificationMessage] =
+    useState<string | null>(null);
+  const [resyncStepMessage, setResyncStepMessage] = useState<string | null>(
+    null,
+  );
   const [bridgeResyncing, setBridgeResyncing] = useState(false);
-  const [bridgePhase, setBridgePhase] = useState<'idle' | 'checking_version' | 'resyncing' | 'error'>('idle');
-  const [bridgeStatusMessage, setBridgeStatusMessage] = useState<string | null>(null);
+  const [bridgePhase, setBridgePhase] = useState<
+    'idle' | 'checking_version' | 'resyncing' | 'error'
+  >('idle');
+  const [bridgeStatusMessage, setBridgeStatusMessage] = useState<string | null>(
+    null,
+  );
   const migrationStepStartRef = useRef<Record<string, number>>({});
   const { getMapping, refreshMapping } = useDeviceMappings();
 
@@ -119,7 +236,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     return list.filter(
       (d) =>
         d.manufacturer?.toLowerCase().includes('everything') ||
-        d.model?.toLowerCase().includes('presence')
+        d.model?.toLowerCase().includes('presence'),
     );
   }, []);
 
@@ -150,21 +267,35 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
   // Auto-detection state
   const [deviceConfig, setDeviceConfig] = useState<DeviceConfig | null>(null);
-  const [availableUpdates, setAvailableUpdates] = useState<AvailableUpdate[]>([]);
-  const [selectedUpdate, setSelectedUpdate] = useState<AvailableUpdate | null>(null);
+  const [availableUpdates, setAvailableUpdates] = useState<AvailableUpdate[]>(
+    [],
+  );
+  const [selectedUpdate, setSelectedUpdate] = useState<AvailableUpdate | null>(
+    null,
+  );
   const [validation, setValidation] = useState<FirmwareValidation | null>(null);
 
   // Update state
-  const [updateStatus, setUpdateStatus] = useState<FirmwareUpdateStatus>('idle');
+  const [updateStatus, setUpdateStatus] =
+    useState<FirmwareUpdateStatus>('idle');
   const [preparedToken, setPreparedToken] = useState<string | null>(null);
   const [preparedVersion, setPreparedVersion] = useState<string | null>(null);
-  const [preparedMigrationMeta, setPreparedMigrationMeta] = useState<AvailableUpdate['migration'] | null>(null);
-  const [updateEntityStatus, setUpdateEntityStatus] = useState<FirmwareUpdateEntityStatus | null>(null);
+  const [preparedMigrationMeta, setPreparedMigrationMeta] = useState<
+    AvailableUpdate['migration'] | null
+  >(null);
+  const [updateEntityStatus, setUpdateEntityStatus] =
+    useState<FirmwareUpdateEntityStatus | null>(null);
   const [updateProgress, setUpdateProgress] = useState<number | null>(null);
-  const [updateMonitorMessage, setUpdateMonitorMessage] = useState<string | null>(null);
+  const [updateMonitorMessage, setUpdateMonitorMessage] = useState<
+    string | null
+  >(null);
   const [monitoringUpdate, setMonitoringUpdate] = useState(false);
-  const [availabilityEntityId, setAvailabilityEntityId] = useState<string | null>(null);
-  const [availabilityState, setAvailabilityState] = useState<string | null>(null);
+  const [availabilityEntityId, setAvailabilityEntityId] = useState<
+    string | null
+  >(null);
+  const [availabilityState, setAvailabilityState] = useState<string | null>(
+    null,
+  );
   const [rebootConfirmed, setRebootConfirmed] = useState(false);
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [showBuildDetails, setShowBuildDetails] = useState(false);
@@ -191,11 +322,15 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
   }, []);
 
   const MIN_STEP_MS = 1200;
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) =>
+    new Promise((resolve) => setTimeout(resolve, ms));
   const markStepStart = (key: string) => {
     migrationStepStartRef.current[key] = Date.now();
   };
-  const ensureMinStepDuration = async (key: string, minMs: number = MIN_STEP_MS) => {
+  const ensureMinStepDuration = async (
+    key: string,
+    minMs: number = MIN_STEP_MS,
+  ) => {
     const start = migrationStepStartRef.current[key];
     if (!start) return;
     const elapsed = Date.now() - start;
@@ -203,7 +338,11 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       await sleep(minMs - elapsed);
     }
   };
-  const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+  const withTimeout = async <T,>(
+    promise: Promise<T>,
+    ms: number,
+    message: string,
+  ): Promise<T> => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<T>((_, reject) => {
       timeoutId = setTimeout(() => reject(new Error(message)), ms);
@@ -228,13 +367,17 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     const manufacturer = normalizeValue(device.manufacturer);
     const matchKey = model || name;
     const byModel = profiles.find((profile) => {
-      const profileModel = normalizeValue((profile as DeviceProfile & { model?: string }).model);
+      const profileModel = normalizeValue(
+        (profile as DeviceProfile & { model?: string }).model,
+      );
       const profileLabel = normalizeValue(profile.label);
       const profileManufacturer = normalizeValue(profile.manufacturer);
       const modelMatch = profileModel && profileModel === matchKey;
       const labelMatch = profileLabel && profileLabel === matchKey;
       const manufacturerMatch =
-        !manufacturer || !profileManufacturer || profileManufacturer === manufacturer;
+        !manufacturer ||
+        !profileManufacturer ||
+        profileManufacturer === manufacturer;
       return (modelMatch || labelMatch) && manufacturerMatch;
     });
     if (byModel) return byModel;
@@ -251,14 +394,17 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
   const resolveDeviceInfo = (device: DiscoveredDevice | null | undefined) => {
     if (!device) return null;
     const profileFromDevice = getDeviceProfile(device);
-    const profileFromMapping =
-      backupMapping?.profileId
-        ? profiles.find((profile) => profile.id === backupMapping.profileId)
-        : null;
+    const profileFromMapping = backupMapping?.profileId
+      ? profiles.find((profile) => profile.id === backupMapping.profileId)
+      : null;
     const profile = profileFromDevice ?? profileFromMapping;
-    const model = device.model ?? profile?.model ?? profile?.label ?? device.name ?? null;
+    const model =
+      device.model ?? profile?.model ?? profile?.label ?? device.name ?? null;
     const firmwareVersion =
-      device.firmwareVersion ?? backupMapping?.firmwareVersion ?? backupMapping?.rawSwVersion ?? null;
+      device.firmwareVersion ??
+      backupMapping?.firmwareVersion ??
+      backupMapping?.rawSwVersion ??
+      null;
     return { model, firmwareVersion, profile };
   };
 
@@ -283,12 +429,13 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
   useEffect(() => {
     const load = async () => {
       try {
-        const [devicesRes, settingsRes, cacheRes, profilesRes] = await Promise.all([
-          fetchDevices(),
-          fetchFirmwareSettings(),
-          fetchFirmwareCache(),
-          fetchProfiles().catch(() => ({ profiles: [] })),
-        ]);
+        const [devicesRes, settingsRes, cacheRes, profilesRes] =
+          await Promise.all([
+            fetchDevices(),
+            fetchFirmwareSettings(),
+            fetchFirmwareCache(),
+            fetchProfiles().catch(() => ({ profiles: [] })),
+          ]);
 
         // Filter to only EP devices
         const epDevices = filterEpDevices(devicesRes.devices);
@@ -305,7 +452,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         setCachedEntries(cacheRes.entries);
       } catch (err) {
         onErrorRef.current(
-          err instanceof Error ? err.message : 'Failed to load firmware settings'
+          err instanceof Error
+            ? err.message
+            : 'Failed to load firmware settings',
         );
       } finally {
         setLoading(false);
@@ -335,7 +484,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       } catch (err) {
         if (cancelled) return;
         onErrorRef.current(
-          err instanceof Error ? err.message : 'Failed to load zone backups'
+          err instanceof Error ? err.message : 'Failed to load zone backups',
         );
       }
     };
@@ -402,7 +551,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
   const isPersistableMigrationPhase = (
     phase: typeof migrationPhase,
-  ): phase is Exclude<typeof migrationPhase, 'idle' | 'prompt'> => phase !== 'idle' && phase !== 'prompt';
+  ): phase is Exclude<typeof migrationPhase, 'idle' | 'prompt'> =>
+    phase !== 'idle' && phase !== 'prompt';
 
   // Resume an in-progress migration after a UI reload.
   useEffect(() => {
@@ -415,7 +565,16 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       .then(({ state }) => {
         if (cancelled || !state) return;
         if (migrationPhase !== 'idle') return;
-        if (!['backing_up', 'installing', 'resync_wait', 'resyncing', 'restoring', 'verifying'].includes(state.phase)) {
+        if (
+          ![
+            'backing_up',
+            'installing',
+            'resync_wait',
+            'resyncing',
+            'restoring',
+            'verifying',
+          ].includes(state.phase)
+        ) {
           return;
         }
 
@@ -457,7 +616,13 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       preparedVersion: preparedVersion ?? null,
       lastError: migrationError ?? null,
     }).catch(() => null);
-  }, [migrationPhase, migrationBackupId, migrationError, preparedVersion, selectedDeviceId]);
+  }, [
+    migrationPhase,
+    migrationBackupId,
+    migrationError,
+    preparedVersion,
+    selectedDeviceId,
+  ]);
 
   const handleSaveSettings = async () => {
     setSavingSettings(true);
@@ -479,10 +644,12 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     options: { skipBridgeCheck?: boolean } = {},
   ) => {
     const effectiveOverride =
-      overrideDevice && typeof (overrideDevice as DiscoveredDevice).id === 'string'
+      overrideDevice &&
+      typeof (overrideDevice as DiscoveredDevice).id === 'string'
         ? overrideDevice
         : null;
-    const device = effectiveOverride ?? devices.find((d) => d.id === selectedDeviceId);
+    const device =
+      effectiveOverride ?? devices.find((d) => d.id === selectedDeviceId);
     if (!device) {
       onError('Please select a device');
       return;
@@ -490,15 +657,20 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
     const resolved = resolveDeviceInfo(device);
     if (!resolved?.model || !resolved.firmwareVersion) {
-      onError('Device is missing required information (model or firmware version)');
+      onError(
+        'Device is missing required information (model or firmware version)',
+      );
       return;
     }
 
-    const deviceModelKey = normalizeModelKey(resolved.model ?? device.name ?? null);
+    const deviceModelKey = normalizeModelKey(
+      resolved.model ?? device.name ?? null,
+    );
     const requiredBridge = BRIDGE_FIRMWARE_BY_MODEL[deviceModelKey];
     const needsBridge =
       !options.skipBridgeCheck &&
-      requiredBridge && compareVersions(resolved.firmwareVersion, requiredBridge) !== null
+      requiredBridge &&
+      compareVersions(resolved.firmwareVersion, requiredBridge) !== null
         ? compareVersions(resolved.firmwareVersion, requiredBridge) < 0
         : false;
 
@@ -515,7 +687,11 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     }
 
     try {
-      const mapping = await ensureMappedService(device.id, 'getBuildFlags', 'Build flags');
+      const mapping = await ensureMappedService(
+        device.id,
+        'getBuildFlags',
+        'Build flags',
+      );
       if (!mapping) {
         setUpdateStatus('idle');
         return;
@@ -525,7 +701,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       const configRes = await getDeviceConfig(
         resolved.model,
         resolved.firmwareVersion,
-        device.id
+        device.id,
       );
       setDeviceConfig(configRes.config);
 
@@ -539,7 +715,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       const updatesRes = await getAvailableUpdates(
         resolved.model,
         resolved.firmwareVersion,
-        device.id
+        device.id,
       );
       setAvailableUpdates(updatesRes.updates);
 
@@ -550,7 +726,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       }
       setUpdateStatus('idle');
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to check for updates');
+      onError(
+        err instanceof Error ? err.message : 'Failed to check for updates',
+      );
       setUpdateStatus('error');
     } finally {
       setCheckingUpdates(false);
@@ -577,7 +755,11 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     }
 
     try {
-      const mapping = await ensureMappedService(selectedDeviceId, 'getBuildFlags', 'Build flags');
+      const mapping = await ensureMappedService(
+        selectedDeviceId,
+        'getBuildFlags',
+        'Build flags',
+      );
       if (!mapping) {
         return;
       }
@@ -587,7 +769,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         const configRes = await getDeviceConfig(
           resolved.model,
           resolved.firmwareVersion,
-          device.id
+          device.id,
         );
         config = configRes.config;
         setDeviceConfig(configRes.config);
@@ -598,7 +780,11 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         return;
       }
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to read device build config');
+      onError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to read device build config',
+      );
       return;
     }
 
@@ -623,10 +809,14 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       const cacheRes = await fetchFirmwareCache();
       setCachedEntries(cacheRes.entries);
 
-      onSuccess(`Firmware v${prepareRes.version} prepared. Local URL: ${prepareRes.localManifestUrl}`);
+      onSuccess(
+        `Firmware v${prepareRes.version} prepared. Local URL: ${prepareRes.localManifestUrl}`,
+      );
     } catch (err) {
       setUpdateStatus('error');
-      onError(err instanceof Error ? err.message : 'Failed to prepare firmware');
+      onError(
+        err instanceof Error ? err.message : 'Failed to prepare firmware',
+      );
     }
   };
 
@@ -644,11 +834,15 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
     const mapping = await getMapping(selectedDeviceId);
     if (!mapping) {
-      onError('Device mapping not found. Run entity discovery to enable update tracking.');
+      onError(
+        'Device mapping not found. Run entity discovery to enable update tracking.',
+      );
       return;
     }
     if (!mapping.serviceMappings?.setUpdateManifest) {
-      onError('Update manifest service not mapped. Run re-sync entities and confirm firmware services.');
+      onError(
+        'Update manifest service not mapped. Run re-sync entities and confirm firmware services.',
+      );
       return;
     }
 
@@ -668,9 +862,12 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       'illuminanceEntity',
       'illuminance',
     ];
-    const availabilityId = availabilityKeys
-      .map((key) => mapping.mappings[key])
-      .find((value) => typeof value === 'string' && value.trim().length > 0) || null;
+    const availabilityId =
+      availabilityKeys
+        .map((key) => mapping.mappings[key])
+        .find(
+          (value) => typeof value === 'string' && value.trim().length > 0,
+        ) || null;
     setAvailabilityEntityId(availabilityId);
 
     setUpdateStatus('updating');
@@ -706,7 +903,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       setCacheKeepCount(res.settings.cacheKeepCount ?? cacheKeepCount);
       onSuccess('Cache retention updated');
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to save cache settings');
+      onError(
+        err instanceof Error ? err.message : 'Failed to save cache settings',
+      );
     } finally {
       setSavingCacheSettings(false);
     }
@@ -738,7 +937,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       const res = await autoPrepare(
         resolved.model,
         resolved.firmwareVersion,
-        device.id
+        device.id,
       );
 
       setPreparedToken(res.prepared.token);
@@ -754,7 +953,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         resolved.firmwareVersion,
         res.newVersion,
         resolved.model,
-        res.migration ?? null
+        res.migration ?? null,
       );
       if (migrationInfo?.required) {
         promptMigration();
@@ -764,7 +963,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       await triggerUpdateOnDevice(res.prepared.token);
     } catch (err) {
       setUpdateStatus('error');
-      onError(err instanceof Error ? err.message : 'Failed to install firmware');
+      onError(
+        err instanceof Error ? err.message : 'Failed to install firmware',
+      );
     }
   };
 
@@ -802,7 +1003,11 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       return;
     }
 
-    const mapping = await ensureMappedService(selectedDeviceId, 'getBuildFlags', 'Build flags');
+    const mapping = await ensureMappedService(
+      selectedDeviceId,
+      'getBuildFlags',
+      'Build flags',
+    );
     if (!mapping) {
       return;
     }
@@ -813,7 +1018,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         const configRes = await getDeviceConfig(
           resolved.model,
           resolved.firmwareVersion,
-          device.id
+          device.id,
         );
         config = configRes.config;
         setDeviceConfig(configRes.config);
@@ -824,15 +1029,21 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         return;
       }
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to read device build config');
+      onError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to read device build config',
+      );
       return;
     }
 
     const migrationGate = getZoneMigrationInfo(
-      backupMapping?.firmwareVersion ?? backupMapping?.rawSwVersion ?? device.firmwareVersion,
+      backupMapping?.firmwareVersion ??
+        backupMapping?.rawSwVersion ??
+        device.firmwareVersion,
       entry.version,
       config?.model ?? resolved.model,
-      null
+      null,
     );
     if (migrationGate?.required) {
       setPreparedToken(entry.token);
@@ -852,7 +1063,11 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       await triggerUpdateOnDevice(entry.token);
     } catch (err) {
       setUpdateStatus('error');
-      onError(err instanceof Error ? err.message : 'Failed to trigger cached firmware update');
+      onError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to trigger cached firmware update',
+      );
     }
   };
 
@@ -862,11 +1077,13 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     try {
       await deleteFirmwareCacheEntry(deviceId, token);
       setCachedEntries((prev) =>
-        prev.filter((e) => !(e.deviceId === deviceId && e.token === token))
+        prev.filter((e) => !(e.deviceId === deviceId && e.token === token)),
       );
       onSuccess('Cache entry deleted');
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to delete cache entry');
+      onError(
+        err instanceof Error ? err.message : 'Failed to delete cache entry',
+      );
     }
   };
 
@@ -884,18 +1101,23 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
     const mapping = backupMapping ?? (await getMapping(selectedDeviceId));
     const profileId = mapping?.profileId ?? getDeviceProfile(device)?.id ?? '';
-    const entityNamePrefix = resolveEntityPrefix({
-      mappingPrefix: mapping?.esphomeNodeName,
-      devicePrefix: device.entityNamePrefix,
-    }) ?? undefined;
+    const entityNamePrefix =
+      resolveEntityPrefix({
+        mappingPrefix: mapping?.esphomeNodeName,
+        devicePrefix: device.entityNamePrefix,
+      }) ?? undefined;
 
     if (!profileId) {
-      onErrorRef.current('Device profile not found. Run entity discovery to sync the device.');
+      onErrorRef.current(
+        'Device profile not found. Run entity discovery to sync the device.',
+      );
       return null;
     }
 
     if (!mapping && !entityNamePrefix) {
-      onErrorRef.current('Entity name prefix missing. Run entity discovery or link the device to a room.');
+      onErrorRef.current(
+        'Entity name prefix missing. Run entity discovery or link the device to a room.',
+      );
       return null;
     }
 
@@ -916,67 +1138,92 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         entityNamePrefix: context.entityNamePrefix,
       });
       setZoneBackups((prev) => {
-        const next = [result.backup, ...prev.filter((b) => b.id !== result.backup.id)];
-        next.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const next = [
+          result.backup,
+          ...prev.filter((b) => b.id !== result.backup.id),
+        ];
+        next.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
         return next;
       });
       setLastBackupId(result.backup.id);
       onSuccess('Zone backup created.');
       return result.backup;
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Failed to create zone backup');
+      onError(
+        err instanceof Error ? err.message : 'Failed to create zone backup',
+      );
       return null;
     } finally {
       setCreatingBackup(false);
     }
   };
 
-  const handleRestoreZoneBackup = useCallback(async (backupId: string): Promise<boolean> => {
-    const context = await resolveBackupContext();
-    if (!context) return false;
+  const handleRestoreZoneBackup = useCallback(
+    async (backupId: string): Promise<boolean> => {
+      const context = await resolveBackupContext();
+      if (!context) return false;
 
-    setRestoringBackup(true);
-    setRestoreWarnings(null);
-    setRestoreError(null);
-    try {
-      const res = await restoreZoneBackup(backupId, {
-        deviceId: context.device.id,
-        profileId: context.profileId,
-        entityNamePrefix: context.entityNamePrefix,
-      });
-      if (res.warnings && res.warnings.length > 0) {
-        setRestoreWarnings(res.warnings);
-        onSuccessRef.current('Zones restored with warnings. Review the details below.');
-      } else {
-        onSuccessRef.current('Zones restored as polygons.');
+      setRestoringBackup(true);
+      setRestoreWarnings(null);
+      setRestoreError(null);
+      try {
+        const res = await restoreZoneBackup(backupId, {
+          deviceId: context.device.id,
+          profileId: context.profileId,
+          entityNamePrefix: context.entityNamePrefix,
+        });
+        if (res.warnings && res.warnings.length > 0) {
+          setRestoreWarnings(res.warnings);
+          onSuccessRef.current(
+            'Zones restored with warnings. Review the details below.',
+          );
+        } else {
+          onSuccessRef.current('Zones restored as polygons.');
+        }
+        return true;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to restore zone backup';
+        setRestoreError(message);
+        onErrorRef.current(message);
+        return false;
+      } finally {
+        setRestoringBackup(false);
       }
-      return true;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to restore zone backup';
-      setRestoreError(message);
-      onErrorRef.current(message);
-      return false;
-    } finally {
-      setRestoringBackup(false);
-    }
-  }, [resolveBackupContext]);
+    },
+    [resolveBackupContext],
+  );
 
   const getZoneMigrationInfo = (
     currentVersion: string | undefined,
     targetVersion: string | undefined,
     model?: string | null,
-    migration?: AvailableUpdate['migration'] | null
-  ): { required: boolean; backupRequired: boolean; description: string; threshold?: string } | null => {
+    migration?: AvailableUpdate['migration'] | null,
+  ): {
+    required: boolean;
+    backupRequired: boolean;
+    description: string;
+    threshold?: string;
+  } | null => {
     if (migration?.id === 'rectangular-to-polygon-zones') {
       return {
         required: true,
         backupRequired: migration.backupRequired ?? true,
-        description: migration.description || 'Rectangular zones are replaced with polygon zones.',
+        description:
+          migration.description ||
+          'Rectangular zones are replaced with polygon zones.',
       };
     }
 
     const threshold = getZoneMigrationThreshold(model ?? undefined);
-    const required = requiresZoneMigration(currentVersion, targetVersion, model ?? undefined);
+    const required = requiresZoneMigration(
+      currentVersion,
+      targetVersion,
+      model ?? undefined,
+    );
     if (!threshold || required !== true) {
       return null;
     }
@@ -998,7 +1245,10 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     [...zones].sort((a, b) => parseZoneIndex(a.id) - parseZoneIndex(b.id));
 
   const isValidRect = (zone: ZoneRect): boolean =>
-    Number.isFinite(zone.width) && Number.isFinite(zone.height) && zone.width > 0 && zone.height > 0;
+    Number.isFinite(zone.width) &&
+    Number.isFinite(zone.height) &&
+    zone.width > 0 &&
+    zone.height > 0;
 
   const rectToPolygon = (rect: ZoneRect): ZonePolygon => ({
     id: rect.id,
@@ -1016,58 +1266,109 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
   const normalizeVertices = (vertices: ZonePolygon['vertices']) =>
     vertices.map((v) => ({ x: Math.round(v.x), y: Math.round(v.y) }));
 
-  const verticesMatch = (expected: ZonePolygon['vertices'], actual: ZonePolygon['vertices']): boolean => {
+  const verticesMatch = (
+    expected: ZonePolygon['vertices'],
+    actual: ZonePolygon['vertices'],
+  ): boolean => {
     if (expected.length !== actual.length) return false;
     const normalizedExpected = normalizeVertices(expected);
     const normalizedActual = normalizeVertices(actual);
     for (let i = 0; i < normalizedExpected.length; i += 1) {
-      if (Math.abs(normalizedExpected[i].x - normalizedActual[i].x) > 1) return false;
-      if (Math.abs(normalizedExpected[i].y - normalizedActual[i].y) > 1) return false;
+      if (Math.abs(normalizedExpected[i].x - normalizedActual[i].x) > 1)
+        return false;
+      if (Math.abs(normalizedExpected[i].y - normalizedActual[i].y) > 1)
+        return false;
     }
     return true;
   };
 
   const isBackupRect = (zone: Zone): zone is ZoneRect =>
-    typeof zone === 'object' && zone !== null && 'width' in zone && 'height' in zone;
+    typeof zone === 'object' &&
+    zone !== null &&
+    'width' in zone &&
+    'height' in zone;
 
   const isBackupPolygon = (zone: Zone): zone is ZonePolygon =>
     typeof zone === 'object' && zone !== null && 'vertices' in zone;
 
-  const buildExpectedPolygons = (backup: ZoneBackup, profile: DeviceProfile | null | undefined): ZonePolygon[] => {
+  const buildExpectedPolygons = (
+    backup: ZoneBackup,
+    profile: DeviceProfile | null | undefined,
+  ): ZonePolygon[] => {
     // Slot counts come from the profile's capabilities as well as its limits, so
     // a device that cannot hold entry zones never expects any back.
-    const { maxZones, maxExclusionZones: maxExclusion, maxEntryZones: maxEntry } = resolveZoneLimits(profile);
+    const {
+      maxZones,
+      maxExclusionZones: maxExclusion,
+      maxEntryZones: maxEntry,
+    } = resolveZoneLimits(profile);
 
     const regularPolygonZones = sortZonesByIndex(
-      backup.zones.filter((zone): zone is ZonePolygon => zone.type === 'regular' && isBackupPolygon(zone))
+      backup.zones.filter(
+        (zone): zone is ZonePolygon =>
+          zone.type === 'regular' && isBackupPolygon(zone),
+      ),
     ).slice(0, maxZones);
     const exclusionPolygonZones = sortZonesByIndex(
-      backup.zones.filter((zone): zone is ZonePolygon => zone.type === 'exclusion' && isBackupPolygon(zone))
+      backup.zones.filter(
+        (zone): zone is ZonePolygon =>
+          zone.type === 'exclusion' && isBackupPolygon(zone),
+      ),
     ).slice(0, maxExclusion);
     const entryPolygonZones = sortZonesByIndex(
-      backup.zones.filter((zone): zone is ZonePolygon => zone.type === 'entry' && isBackupPolygon(zone))
+      backup.zones.filter(
+        (zone): zone is ZonePolygon =>
+          zone.type === 'entry' && isBackupPolygon(zone),
+      ),
     ).slice(0, maxEntry);
 
     const regularRectZones = sortZonesByIndex(
-      backup.zones.filter((zone): zone is ZoneRect => zone.type === 'regular' && isBackupRect(zone) && isValidRect(zone))
+      backup.zones.filter(
+        (zone): zone is ZoneRect =>
+          zone.type === 'regular' && isBackupRect(zone) && isValidRect(zone),
+      ),
     ).slice(0, maxZones);
     const exclusionRectZones = sortZonesByIndex(
-      backup.zones.filter((zone): zone is ZoneRect => zone.type === 'exclusion' && isBackupRect(zone) && isValidRect(zone))
+      backup.zones.filter(
+        (zone): zone is ZoneRect =>
+          zone.type === 'exclusion' && isBackupRect(zone) && isValidRect(zone),
+      ),
     ).slice(0, maxExclusion);
     const entryRectZones = sortZonesByIndex(
-      backup.zones.filter((zone): zone is ZoneRect => zone.type === 'entry' && isBackupRect(zone) && isValidRect(zone))
+      backup.zones.filter(
+        (zone): zone is ZoneRect =>
+          zone.type === 'entry' && isBackupRect(zone) && isValidRect(zone),
+      ),
     ).slice(0, maxEntry);
 
     return [
       // IMPORTANT: restore writes zones sequentially into slot 1..N regardless of original slot index.
       // If a backup has gaps (e.g. Exclusion 2 only), it will be restored into Exclusion 1.
       // Verification must mirror that behavior to avoid false warnings.
-      ...regularPolygonZones.map((zone, idx) => ({ ...zone, id: `Zone ${idx + 1}` })),
-      ...exclusionPolygonZones.map((zone, idx) => ({ ...zone, id: `Exclusion ${idx + 1}` })),
-      ...entryPolygonZones.map((zone, idx) => ({ ...zone, id: `Entry ${idx + 1}` })),
-      ...regularRectZones.map((zone, idx) => ({ ...rectToPolygon(zone), id: `Zone ${regularPolygonZones.length + idx + 1}` })),
-      ...exclusionRectZones.map((zone, idx) => ({ ...rectToPolygon(zone), id: `Exclusion ${exclusionPolygonZones.length + idx + 1}` })),
-      ...entryRectZones.map((zone, idx) => ({ ...rectToPolygon(zone), id: `Entry ${entryPolygonZones.length + idx + 1}` })),
+      ...regularPolygonZones.map((zone, idx) => ({
+        ...zone,
+        id: `Zone ${idx + 1}`,
+      })),
+      ...exclusionPolygonZones.map((zone, idx) => ({
+        ...zone,
+        id: `Exclusion ${idx + 1}`,
+      })),
+      ...entryPolygonZones.map((zone, idx) => ({
+        ...zone,
+        id: `Entry ${idx + 1}`,
+      })),
+      ...regularRectZones.map((zone, idx) => ({
+        ...rectToPolygon(zone),
+        id: `Zone ${regularPolygonZones.length + idx + 1}`,
+      })),
+      ...exclusionRectZones.map((zone, idx) => ({
+        ...rectToPolygon(zone),
+        id: `Exclusion ${exclusionPolygonZones.length + idx + 1}`,
+      })),
+      ...entryRectZones.map((zone, idx) => ({
+        ...rectToPolygon(zone),
+        id: `Entry ${entryPolygonZones.length + idx + 1}`,
+      })),
     ];
   };
 
@@ -1102,58 +1403,76 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     resetMigrationFlow();
   }
 
-  const verifyPolygonRestore = useCallback(async (backupId: string): Promise<{ status: 'success' | 'warning' | 'error'; message: string }> => {
-    const backup = zoneBackups.find((item) => item.id === backupId) ?? null;
-    if (!backup) {
-      return { status: 'error', message: 'Backup not found for verification.' };
-    }
-
-    const context = await resolveBackupContext();
-    if (!context) {
-      return { status: 'error', message: 'Zone verification skipped: missing device context.' };
-    }
-
-    const profile = profiles.find((item) => item.id === context.profileId) ?? null;
-    const expectedPolygons = buildExpectedPolygons(backup, profile);
-    if (expectedPolygons.length === 0) {
-      return { status: 'success', message: 'No zones to verify.' };
-    }
-
-    try {
-      const devicePolygons = await fetchPolygonZonesFromDevice(
-        context.device.id,
-        context.profileId,
-        context.entityNamePrefix
-      );
-
-      const actualByKey = new Map<string, ZonePolygon>();
-      for (const zone of devicePolygons) {
-        actualByKey.set(`${zone.type}:${zone.id}`, zone);
-      }
-
-      let mismatches = 0;
-      for (const expected of expectedPolygons) {
-        const actual = actualByKey.get(`${expected.type}:${expected.id}`);
-        if (!actual || !verticesMatch(expected.vertices, actual.vertices)) {
-          mismatches += 1;
-        }
-      }
-
-      if (mismatches > 0) {
+  const verifyPolygonRestore = useCallback(
+    async (
+      backupId: string,
+    ): Promise<{
+      status: 'success' | 'warning' | 'error';
+      message: string;
+    }> => {
+      const backup = zoneBackups.find((item) => item.id === backupId) ?? null;
+      if (!backup) {
         return {
-          status: 'warning',
-          message: `${mismatches} polygon zone${mismatches > 1 ? 's' : ''} did not match the backup.`,
+          status: 'error',
+          message: 'Backup not found for verification.',
         };
       }
 
-      return { status: 'success', message: 'Polygon zones verified.' };
-    } catch (error) {
-      return {
-        status: 'error',
-        message: error instanceof Error ? error.message : 'Failed to verify polygon zones.',
-      };
-    }
-  }, [zoneBackups, resolveBackupContext, profiles]);
+      const context = await resolveBackupContext();
+      if (!context) {
+        return {
+          status: 'error',
+          message: 'Zone verification skipped: missing device context.',
+        };
+      }
+
+      const profile =
+        profiles.find((item) => item.id === context.profileId) ?? null;
+      const expectedPolygons = buildExpectedPolygons(backup, profile);
+      if (expectedPolygons.length === 0) {
+        return { status: 'success', message: 'No zones to verify.' };
+      }
+
+      try {
+        const devicePolygons = await fetchPolygonZonesFromDevice(
+          context.device.id,
+          context.profileId,
+          context.entityNamePrefix,
+        );
+
+        const actualByKey = new Map<string, ZonePolygon>();
+        for (const zone of devicePolygons) {
+          actualByKey.set(`${zone.type}:${zone.id}`, zone);
+        }
+
+        let mismatches = 0;
+        for (const expected of expectedPolygons) {
+          const actual = actualByKey.get(`${expected.type}:${expected.id}`);
+          if (!actual || !verticesMatch(expected.vertices, actual.vertices)) {
+            mismatches += 1;
+          }
+        }
+
+        if (mismatches > 0) {
+          return {
+            status: 'warning',
+            message: `${mismatches} polygon zone${mismatches > 1 ? 's' : ''} did not match the backup.`,
+          };
+        }
+
+        return { status: 'success', message: 'Polygon zones verified.' };
+      } catch (error) {
+        return {
+          status: 'error',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Failed to verify polygon zones.',
+        };
+      }
+    },
+    [zoneBackups, resolveBackupContext, profiles],
+  );
 
   async function confirmMigrationAndInstall(): Promise<void> {
     if (!preparedToken) {
@@ -1198,7 +1517,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     try {
       await triggerUpdateOnDevice(preparedToken);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to trigger update';
+      const message =
+        err instanceof Error ? err.message : 'Failed to trigger update';
       setMigrationPhase('error');
       setMigrationError(message);
       setMigrationErrorStep('install');
@@ -1213,9 +1533,14 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     selectedDevice?.firmwareVersion ??
     selectedUpdate?.currentVersion;
   const resolvedPromptInfo = resolveDeviceInfo(selectedDevice ?? null);
-  const promptFirmwareVersion = resolvedPromptInfo?.firmwareVersion ?? currentFirmwareVersion ?? null;
+  const promptFirmwareVersion =
+    resolvedPromptInfo?.firmwareVersion ?? currentFirmwareVersion ?? null;
   const selectedModelKey = normalizeModelKey(
-    resolvedPromptInfo?.model ?? deviceConfig?.model ?? selectedDevice?.model ?? selectedDevice?.name ?? null
+    resolvedPromptInfo?.model ??
+      deviceConfig?.model ??
+      selectedDevice?.model ??
+      selectedDevice?.name ??
+      null,
   );
   const bridgeVersion = BRIDGE_FIRMWARE_BY_MODEL[selectedModelKey];
   const bridgeFlashUrl = BRIDGE_FLASH_URL_BY_MODEL[selectedModelKey];
@@ -1223,18 +1548,31 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     bridgeVersion && promptFirmwareVersion
       ? compareVersions(promptFirmwareVersion, bridgeVersion)
       : null;
-  const needsBridgeUpdate = Boolean(bridgeVersion && bridgeCompare !== null && bridgeCompare < 0);
+  const needsBridgeUpdate = Boolean(
+    bridgeVersion && bridgeCompare !== null && bridgeCompare < 0,
+  );
   const sortedBackups = [...zoneBackups].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
   const latestBackup = sortedBackups[0] ?? null;
   const effectiveLanIp = lanIpOverride || autoDetectedIp;
   const updatesBlocked = deviceConfig?.configSource === 'inferred';
   const updatesBlockedMessage = buildConfigUnavailableMessage;
-  const migrationInProgress = ['backing_up', 'installing', 'resync_wait', 'resyncing', 'restoring', 'verifying'].includes(migrationPhase);
+  const migrationInProgress = [
+    'backing_up',
+    'installing',
+    'resync_wait',
+    'resyncing',
+    'restoring',
+    'verifying',
+  ].includes(migrationPhase);
   const migrationPromptOpen = migrationPhase === 'prompt';
-  const modalLocked = ['checking', 'preparing', 'downloading', 'updating'].includes(updateStatus) || migrationInProgress;
-  const showFirmwareModal = updateModalOpen || updateStatus === 'updating' || migrationInProgress;
+  const modalLocked =
+    ['checking', 'preparing', 'downloading', 'updating'].includes(
+      updateStatus,
+    ) || migrationInProgress;
+  const showFirmwareModal =
+    updateModalOpen || updateStatus === 'updating' || migrationInProgress;
   const canInstall =
     updateStatus === 'ready' &&
     preparedToken &&
@@ -1242,35 +1580,38 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     !migrationPromptOpen &&
     !migrationInProgress &&
     migrationPhase !== 'error';
-  const configStatus = !selectedDeviceId
-    ? 'No device selected'
-    : deviceConfig
+  const configStatus = deviceConfig
     ? deviceConfig.configSource === 'entities'
       ? 'Config verified'
       : 'Config unavailable'
     : 'Config not checked';
-  const configStatusClass = !selectedDeviceId
-    ? 'border-slate-600/60 bg-slate-800/60 text-slate-400'
-    : deviceConfig?.configSource === 'entities'
-    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-    : 'border-amber-500/40 bg-amber-500/10 text-amber-200';
+  const configStatusTone =
+    deviceConfig?.configSource === 'entities'
+      ? ('success' as const)
+      : deviceConfig
+        ? ('warning' as const)
+        : ('neutral' as const);
   const updateInstalledVersion =
     typeof updateEntityStatus?.attributes?.installed_version === 'string'
       ? updateEntityStatus.attributes.installed_version
       : null;
-  const checkUpdatesDisabled = !selectedDeviceId || checkingUpdates || bridgeResyncing;
-  const latestUpdate = availableUpdates.reduce<AvailableUpdate | null>((latest, update) => {
-    if (!latest) return update;
-    const comparison = compareVersions(update.newVersion, latest.newVersion);
-    if (comparison === null) return latest;
-    return comparison > 0 ? update : latest;
-  }, null);
+  const checkUpdatesDisabled =
+    !selectedDeviceId || checkingUpdates || bridgeResyncing;
+  const latestUpdate = availableUpdates.reduce<AvailableUpdate | null>(
+    (latest, update) => {
+      if (!latest) return update;
+      const comparison = compareVersions(update.newVersion, latest.newVersion);
+      if (comparison === null) return latest;
+      return comparison > 0 ? update : latest;
+    },
+    null,
+  );
   const latestUpdateMigration = latestUpdate
     ? getZoneMigrationInfo(
         latestUpdate.currentVersion,
         latestUpdate.newVersion,
         deviceConfig?.model ?? selectedDevice?.model ?? undefined,
-        latestUpdate.migration
+        latestUpdate.migration,
       )
     : null;
   const preparedMigration = preparedVersion
@@ -1278,34 +1619,59 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         currentFirmwareVersion,
         preparedVersion,
         deviceConfig?.model ?? selectedDevice?.model ?? undefined,
-        preparedMigrationMeta
+        preparedMigrationMeta,
       )
     : null;
-  const restoreBackupId = migrationBackupId ?? lastBackupId ?? latestBackup?.id ?? null;
+  const restoreBackupId =
+    migrationBackupId ?? lastBackupId ?? latestBackup?.id ?? null;
   const migrationPromptTargetVersion =
-    preparedVersion ?? selectedUpdate?.newVersion ?? latestUpdate?.newVersion ?? null;
+    preparedVersion ??
+    selectedUpdate?.newVersion ??
+    latestUpdate?.newVersion ??
+    null;
   const migrationPromptText = `The version you are upgrading to${migrationPromptTargetVersion ? ` (v${migrationPromptTargetVersion})` : ''} removes rectangular zones in favour of polygon zones. During the upgrade, we will back up your current rectangular zones, update the device, and convert them to polygon zones for a seamless experience. If you are ready to proceed with this upgrade, please proceed.`;
-  const migrationStepOrder = ['backup', 'install', 'resync', 'restore', 'verify'] as const;
+  const migrationStepOrder = [
+    'backup',
+    'install',
+    'resync',
+    'restore',
+    'verify',
+  ] as const;
   type MigrationStepKey = (typeof migrationStepOrder)[number];
   const activeStep: MigrationStepKey | null = (() => {
     if (migrationPhase === 'backing_up') return 'backup';
     if (migrationPhase === 'installing') return 'install';
-    if (migrationPhase === 'resync_wait' || migrationPhase === 'resyncing') return 'resync';
+    if (migrationPhase === 'resync_wait' || migrationPhase === 'resyncing')
+      return 'resync';
     if (migrationPhase === 'restoring') return 'restore';
     if (migrationPhase === 'verifying') return 'verify';
     return null;
   })();
-  const activeStepIndex = activeStep ? migrationStepOrder.indexOf(activeStep) : -1;
-  const errorStepIndex = migrationErrorStep ? migrationStepOrder.indexOf(migrationErrorStep) : -1;
-  const getMigrationStepStatus = (step: MigrationStepKey): 'pending' | 'active' | 'done' | 'error' | 'warning' => {
+  const activeStepIndex = activeStep
+    ? migrationStepOrder.indexOf(activeStep)
+    : -1;
+  const errorStepIndex = migrationErrorStep
+    ? migrationStepOrder.indexOf(migrationErrorStep)
+    : -1;
+  const getMigrationStepStatus = (
+    step: MigrationStepKey,
+  ): 'pending' | 'active' | 'done' | 'error' | 'warning' => {
     if (migrationErrorStep === step) return 'error';
-    if (step === 'verify' && migrationVerificationStatus === 'warning') return 'warning';
+    if (step === 'verify' && migrationVerificationStatus === 'warning')
+      return 'warning';
     if (activeStep === step) return 'active';
     if (migrationPhase === 'complete') return 'done';
     if (migrationPhase === 'error') {
-      return migrationErrorStep && migrationStepOrder.indexOf(step) < errorStepIndex ? 'done' : 'pending';
+      return migrationErrorStep &&
+        migrationStepOrder.indexOf(step) < errorStepIndex
+        ? 'done'
+        : 'pending';
     }
-    if (activeStepIndex >= 0 && migrationStepOrder.indexOf(step) < activeStepIndex) return 'done';
+    if (
+      activeStepIndex >= 0 &&
+      migrationStepOrder.indexOf(step) < activeStepIndex
+    )
+      return 'done';
     return 'pending';
   };
   const migrationSteps = [
@@ -1318,8 +1684,12 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     ...step,
     status: getMigrationStepStatus(step.key),
   }));
-  const showMigrationSteps = migrationPhase !== 'idle' && migrationPhase !== 'prompt';
-  const getMigrationStepDetail = (step: MigrationStepKey, status: 'pending' | 'active' | 'done' | 'error' | 'warning'): string | null => {
+  const showMigrationSteps =
+    migrationPhase !== 'idle' && migrationPhase !== 'prompt';
+  const getMigrationStepDetail = (
+    step: MigrationStepKey,
+    status: 'pending' | 'active' | 'done' | 'error' | 'warning',
+  ): string | null => {
     if (status === 'pending') return null;
     if (status === 'error') return migrationError ?? 'Step failed.';
     if (status === 'warning' && step === 'verify') {
@@ -1330,10 +1700,12 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       if (step === 'install') return 'Firmware updated.';
       if (step === 'resync') return 'Entities refreshed.';
       if (step === 'restore') return 'Zones restored.';
-      if (step === 'verify') return migrationVerificationMessage ?? 'Verification complete.';
+      if (step === 'verify')
+        return migrationVerificationMessage ?? 'Verification complete.';
     }
     if (step === 'backup') return 'Saving current zones...';
-    if (step === 'install') return updateMonitorMessage || 'Installing firmware...';
+    if (step === 'install')
+      return updateMonitorMessage || 'Installing firmware...';
     if (step === 'resync') {
       if (migrationPhase === 'resync_wait') {
         return resyncStepMessage ?? 'Letting the device settle after reboot...';
@@ -1405,9 +1777,12 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       return;
     }
 
-    const profileId = backupMapping?.profileId ?? getDeviceProfile(device)?.id ?? '';
+    const profileId =
+      backupMapping?.profileId ?? getDeviceProfile(device)?.id ?? '';
     if (!profileId) {
-      onErrorRef.current('Device profile not found. Run entity discovery to sync the device.');
+      onErrorRef.current(
+        'Device profile not found. Run entity discovery to sync the device.',
+      );
       return;
     }
 
@@ -1422,7 +1797,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     let hadError = false;
     setBridgeResyncing(true);
     setBridgePhase('checking_version');
-    setBridgeStatusMessage(`Waiting for your device to come back online (v${bridgeVersion})...`);
+    setBridgeStatusMessage(
+      `Waiting for your device to come back online (v${bridgeVersion})...`,
+    );
     try {
       const pollStart = Date.now();
       const pollTimeoutMs = 120_000;
@@ -1440,7 +1817,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         }
 
         const bridgeOk =
-          bridgeVersion && compareVersions(refreshedVersion, bridgeVersion) !== null
+          bridgeVersion &&
+          compareVersions(refreshedVersion, bridgeVersion) !== null
             ? compareVersions(refreshedVersion, bridgeVersion) >= 0
             : false;
 
@@ -1454,7 +1832,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
       if (!confirmedVersion) {
         setBridgePhase('error');
-        setBridgeStatusMessage('We could not confirm the update yet. Please wait a moment and try again.');
+        setBridgeStatusMessage(
+          'We could not confirm the update yet. Please wait a moment and try again.',
+        );
         hadError = true;
         return;
       }
@@ -1464,14 +1844,16 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       const discoveryResult = await withTimeout(
         discoverAndSaveMapping(device.id, profileId, deviceName),
         45000,
-        'Entity re-sync timed out. Make sure the device is online and try again.'
+        'Entity re-sync timed out. Make sure the device is online and try again.',
       );
       if (discoveryResult?.mapping) {
         setBackupMapping(discoveryResult.mapping);
       }
       await refreshMapping(device.id);
 
-      setBridgeStatusMessage(`Update confirmed (v${confirmedVersion}). Checking for the next update...`);
+      setBridgeStatusMessage(
+        `Update confirmed (v${confirmedVersion}). Checking for the next update...`,
+      );
       setCheckingUpdates(true);
       setUpdateStatus('checking');
       setUpdateModalOpen(true);
@@ -1483,11 +1865,13 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
           ...device,
           firmwareVersion: confirmedVersion,
         },
-        { skipBridgeCheck: true }
+        { skipBridgeCheck: true },
       );
     } catch (err) {
       setBridgePhase('error');
-      setBridgeStatusMessage(err instanceof Error ? err.message : 'Failed to re-sync entities');
+      setBridgeStatusMessage(
+        err instanceof Error ? err.message : 'Failed to re-sync entities',
+      );
       hadError = true;
     } finally {
       setBridgeResyncing(false);
@@ -1502,7 +1886,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
           Migration progress
         </div>
         {migrationPhase === 'complete' && (
-          <span className="text-[11px] font-semibold text-emerald-200">Complete</span>
+          <span className="text-[11px] font-semibold text-emerald-200">
+            Complete
+          </span>
         )}
       </div>
       <div className="mt-4 space-y-3">
@@ -1514,18 +1900,26 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
           return (
             <div key={step.key} className="flex items-start gap-3">
               <div className="relative flex flex-col items-center">
-                <div className={`relative h-3 w-3 rounded-full ${tone.dot} transition-colors duration-300`}>
+                <div
+                  className={`relative h-3 w-3 rounded-full ${tone.dot} transition-colors duration-300`}
+                >
                   {isActive && (
                     <span className="absolute inset-0 rounded-full bg-cyan-400/40 animate-ping" />
                   )}
                 </div>
                 {!isLast && (
-                  <div className={`mt-1 h-8 w-px ${tone.line} transition-colors duration-300`} />
+                  <div
+                    className={`mt-1 h-8 w-px ${tone.line} transition-colors duration-300`}
+                  />
                 )}
               </div>
               <div className="flex-1">
-                <div className={`text-sm font-semibold ${tone.text}`}>{step.label}</div>
-                {detail && <div className={`mt-1 text-xs ${tone.detail}`}>{detail}</div>}
+                <div className={`text-sm font-semibold ${tone.text}`}>
+                  {step.label}
+                </div>
+                {detail && (
+                  <div className={`mt-1 text-xs ${tone.detail}`}>{detail}</div>
+                )}
                 {step.key === 'resync' && migrationPhase === 'resync_wait' && (
                   <button
                     type="button"
@@ -1542,7 +1936,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       </div>
       {migrationPhase === 'error' && (
         <div className="mt-4 rounded-lg border border-rose-500/40 bg-rose-500/10 p-3 text-xs text-rose-100">
-          <div className="text-sm font-semibold text-rose-100">Migration paused</div>
+          <div className="text-sm font-semibold text-rose-100">
+            Migration paused
+          </div>
           <div className="mt-1 text-xs text-rose-200">
             {migrationError || 'The migration could not finish automatically.'}
           </div>
@@ -1561,75 +1957,85 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
               Retry re-sync
             </button>
           )}
-          {restoreBackupId && (migrationErrorStep === 'restore' || migrationErrorStep === 'verify') && (
-            <button
-              type="button"
-              onClick={async () => {
-                setMigrationError(null);
-                setMigrationErrorStep(null);
-                setMigrationVerificationStatus('idle');
-                setMigrationVerificationMessage(null);
+          {restoreBackupId &&
+            (migrationErrorStep === 'restore' ||
+              migrationErrorStep === 'verify') && (
+              <button
+                type="button"
+                onClick={async () => {
+                  setMigrationError(null);
+                  setMigrationErrorStep(null);
+                  setMigrationVerificationStatus('idle');
+                  setMigrationVerificationMessage(null);
 
-                markStepStart('restore');
-                setMigrationPhase('restoring');
-                const restored = await handleRestoreZoneBackup(restoreBackupId);
-                if (!isMountedRef.current) {
-                  return;
-                }
-                if (!restored) {
-                  setMigrationPhase('error');
-                  setMigrationError('Zone restore failed. Try restoring again from Zone Backups.');
-                  setMigrationErrorStep('restore');
-                  return;
-                }
+                  markStepStart('restore');
+                  setMigrationPhase('restoring');
+                  const restored =
+                    await handleRestoreZoneBackup(restoreBackupId);
+                  if (!isMountedRef.current) {
+                    return;
+                  }
+                  if (!restored) {
+                    setMigrationPhase('error');
+                    setMigrationError(
+                      'Zone restore failed. Try restoring again from Zone Backups.',
+                    );
+                    setMigrationErrorStep('restore');
+                    return;
+                  }
 
-                await ensureMinStepDuration('restore');
-                if (!isMountedRef.current) {
-                  return;
-                }
+                  await ensureMinStepDuration('restore');
+                  if (!isMountedRef.current) {
+                    return;
+                  }
 
-                markStepStart('verify');
-                setMigrationPhase('verifying');
-                setMigrationVerificationStatus('running');
-                setMigrationVerificationMessage(null);
-                const verification = await verifyPolygonRestore(restoreBackupId);
-                if (!isMountedRef.current) {
-                  return;
-                }
+                  markStepStart('verify');
+                  setMigrationPhase('verifying');
+                  setMigrationVerificationStatus('running');
+                  setMigrationVerificationMessage(null);
+                  const verification =
+                    await verifyPolygonRestore(restoreBackupId);
+                  if (!isMountedRef.current) {
+                    return;
+                  }
 
-                await ensureMinStepDuration('verify');
-                if (!isMountedRef.current) {
-                  return;
-                }
+                  await ensureMinStepDuration('verify');
+                  if (!isMountedRef.current) {
+                    return;
+                  }
 
-                setMigrationVerificationStatus(verification.status);
-                setMigrationVerificationMessage(verification.message);
+                  setMigrationVerificationStatus(verification.status);
+                  setMigrationVerificationMessage(verification.message);
 
-                if (verification.status === 'error') {
-                  setMigrationPhase('error');
-                  setMigrationError(verification.message);
-                  setMigrationErrorStep('verify');
-                  return;
-                }
+                  if (verification.status === 'error') {
+                    setMigrationPhase('error');
+                    setMigrationError(verification.message);
+                    setMigrationErrorStep('verify');
+                    return;
+                  }
 
-                setMigrationPhase('complete');
-              }}
-              disabled={restoringBackup}
-              className="mt-3 rounded-lg bg-rose-600/20 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-600/30 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {restoringBackup ? 'Restoring...' : 'Try Restore Again'}
-            </button>
-          )}
+                  setMigrationPhase('complete');
+                }}
+                disabled={restoringBackup}
+                className="mt-3 rounded-lg bg-rose-600/20 px-3 py-1.5 text-xs font-semibold text-rose-100 transition hover:bg-rose-600/30 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {restoringBackup ? 'Restoring...' : 'Try Restore Again'}
+              </button>
+            )}
         </div>
       )}
-      {migrationPhase === 'complete' && migrationVerificationStatus === 'warning' && (
-        <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
-          <div className="text-sm font-semibold text-amber-100">Review recommended</div>
-          <div className="mt-1 text-xs text-amber-200">
-            {migrationVerificationMessage ?? 'Some zones did not match the backup.'}
+      {migrationPhase === 'complete' &&
+        migrationVerificationStatus === 'warning' && (
+          <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+            <div className="text-sm font-semibold text-amber-100">
+              Review recommended
+            </div>
+            <div className="mt-1 text-xs text-amber-200">
+              {migrationVerificationMessage ??
+                'Some zones did not match the backup.'}
+            </div>
           </div>
-        </div>
-      )}
+        )}
       {restoreWarnings && restoreWarnings.length > 0 && (
         <ul className="mt-4 space-y-1 text-[11px] text-slate-300">
           {restoreWarnings.map((warning, index) => (
@@ -1639,11 +2045,15 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
           ))}
         </ul>
       )}
-      {restoreError && <div className="mt-3 text-[11px] text-rose-200">{restoreError}</div>}
+      {restoreError && (
+        <div className="mt-3 text-[11px] text-rose-200">{restoreError}</div>
+      )}
     </div>
   ) : null;
 
-  const parseProgress = (attributes: Record<string, unknown>): number | null => {
+  const parseProgress = (
+    attributes: Record<string, unknown>,
+  ): number | null => {
     const raw =
       attributes.progress ??
       attributes.percentage ??
@@ -1690,7 +2100,10 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     if (!res.ok) {
       return null;
     }
-    return (await res.json()) as { state: string; attributes: Record<string, unknown> };
+    return (await res.json()) as {
+      state: string;
+      attributes: Record<string, unknown>;
+    };
   };
 
   useEffect(() => {
@@ -1715,14 +2128,22 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         const attributes = status.attributes || {};
         const progress = parseProgress(attributes);
         const updateState = normalizeState(status.state);
-        const inProgress = isInProgress(attributes) || updateState === 'installing' || updateState === 'updating';
-        const installedVersion = typeof attributes.installed_version === 'string'
-          ? attributes.installed_version
-          : null;
+        const inProgress =
+          isInProgress(attributes) ||
+          updateState === 'installing' ||
+          updateState === 'updating';
+        const installedVersion =
+          typeof attributes.installed_version === 'string'
+            ? attributes.installed_version
+            : null;
         const installedVersionMatches =
-          !!preparedVersion && !!installedVersion && installedVersion === preparedVersion;
+          !!preparedVersion &&
+          !!installedVersion &&
+          installedVersion === preparedVersion;
         const hasStartSignal =
-          inProgress || (progress !== null && progress > 0) || installedVersionMatches;
+          inProgress ||
+          (progress !== null && progress > 0) ||
+          installedVersionMatches;
 
         if (progress !== null) {
           setUpdateProgress(progress);
@@ -1739,14 +2160,20 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         const installCompleteSignal =
           updateMonitorRef.current.seenStart &&
           !inProgress &&
-          (progress === null || progress >= 100 || updateState === 'off' || updateState === 'idle');
+          (progress === null ||
+            progress >= 100 ||
+            updateState === 'off' ||
+            updateState === 'idle');
 
         if (availabilityEntityId) {
           const availability = await fetchEntityState(availabilityEntityId);
           const availabilityValue = availability?.state ?? null;
           setAvailabilityState(availabilityValue);
           const isUnavailable = isUnavailableState(availabilityValue);
-          if (installCompleteSignal && !updateMonitorRef.current.rebootStartAt) {
+          if (
+            installCompleteSignal &&
+            !updateMonitorRef.current.rebootStartAt
+          ) {
             updateMonitorRef.current.rebootStartAt = Date.now();
           }
           if (isUnavailable) {
@@ -1764,21 +2191,31 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
             if (Date.now() - rebootStartAt > rebootTimeoutMs) {
               setMonitoringUpdate(false);
               setUpdateStatus('error');
-              onError('Timed out waiting for device to come back online. Check Home Assistant for status.');
+              onError(
+                'Timed out waiting for device to come back online. Check Home Assistant for status.',
+              );
               return;
             }
           }
         }
 
-        const hasRebooted = updateMonitorRef.current.seenRebootDown && updateMonitorRef.current.seenRebootUp;
+        const hasRebooted =
+          updateMonitorRef.current.seenRebootDown &&
+          updateMonitorRef.current.seenRebootUp;
 
         if (updateMonitorRef.current.seenStart) {
           if (availabilityEntityId) {
             if (hasRebooted && installCompleteSignal) {
-              if (preparedVersion && installedVersion && installedVersion !== preparedVersion) {
+              if (
+                preparedVersion &&
+                installedVersion &&
+                installedVersion !== preparedVersion
+              ) {
                 setMonitoringUpdate(false);
                 setUpdateStatus('error');
-                onError(`Update finished but device reports v${installedVersion}. Expected v${preparedVersion}.`);
+                onError(
+                  `Update finished but device reports v${installedVersion}. Expected v${preparedVersion}.`,
+                );
                 return;
               }
               setRebootConfirmed(true);
@@ -1786,20 +2223,28 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
               setMonitoringUpdate(false);
               setUpdateStatus('complete');
               onSuccess(
-                `Firmware updated${installedVersion ? ` to v${installedVersion}` : ''}. Device rebooted and is back online.`
+                `Firmware updated${installedVersion ? ` to v${installedVersion}` : ''}. Device rebooted and is back online.`,
               );
               debugMigration('install complete -> resync_wait', {
                 selectedDeviceId,
                 migrationDeviceId: migrationDeviceIdRef.current,
               });
-              setMigrationPhase((prev) => (prev === 'installing' ? 'resync_wait' : prev));
+              setMigrationPhase((prev) =>
+                prev === 'installing' ? 'resync_wait' : prev,
+              );
               return;
             }
           } else if (installCompleteSignal) {
-            if (preparedVersion && installedVersion && installedVersion !== preparedVersion) {
+            if (
+              preparedVersion &&
+              installedVersion &&
+              installedVersion !== preparedVersion
+            ) {
               setMonitoringUpdate(false);
               setUpdateStatus('error');
-              onError(`Update finished but device reports v${installedVersion}. Expected v${preparedVersion}.`);
+              onError(
+                `Update finished but device reports v${installedVersion}. Expected v${preparedVersion}.`,
+              );
               return;
             }
             setRebootConfirmed(false);
@@ -1807,13 +2252,15 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
             setMonitoringUpdate(false);
             setUpdateStatus('complete');
             onSuccess(
-              `Firmware updated${installedVersion ? ` to v${installedVersion}` : ''}. Device may reboot briefly.`
+              `Firmware updated${installedVersion ? ` to v${installedVersion}` : ''}. Device may reboot briefly.`,
             );
             debugMigration('install complete -> resync_wait', {
               selectedDeviceId,
               migrationDeviceId: migrationDeviceIdRef.current,
             });
-            setMigrationPhase((prev) => (prev === 'installing' ? 'resync_wait' : prev));
+            setMigrationPhase((prev) =>
+              prev === 'installing' ? 'resync_wait' : prev,
+            );
             return;
           }
         }
@@ -1838,14 +2285,21 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
           return;
         }
         const message = err instanceof Error ? err.message : '';
-        if (message.includes('ENTITY_NOT_FOUND') || message.includes('MAPPING_NOT_FOUND')) {
+        if (
+          message.includes('ENTITY_NOT_FOUND') ||
+          message.includes('MAPPING_NOT_FOUND')
+        ) {
           setMonitoringUpdate(false);
-          setUpdateMonitorMessage('Update entity not mapped. Run entity discovery to enable progress tracking.');
+          setUpdateMonitorMessage(
+            'Update entity not mapped. Run entity discovery to enable progress tracking.',
+          );
           return;
         }
         if (message.includes('404')) {
           setMonitoringUpdate(false);
-          setUpdateMonitorMessage('Update status unavailable. Check Home Assistant for progress.');
+          setUpdateMonitorMessage(
+            'Update status unavailable. Check Home Assistant for progress.',
+          );
           return;
         }
       }
@@ -1853,7 +2307,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       if (updateMonitorRef.current.attempts >= maxAttempts) {
         setMonitoringUpdate(false);
         setUpdateStatus('error');
-        onError('Timed out waiting for firmware update status. Check Home Assistant for progress.');
+        onError(
+          'Timed out waiting for firmware update status. Check Home Assistant for progress.',
+        );
       }
     };
 
@@ -1863,7 +2319,15 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       cancelled = true;
       clearInterval(interval);
     };
-  }, [monitoringUpdate, selectedDeviceId, preparedVersion, availabilityEntityId, onError, onSuccess, debugMigration]);
+  }, [
+    monitoringUpdate,
+    selectedDeviceId,
+    preparedVersion,
+    availabilityEntityId,
+    onError,
+    onSuccess,
+    debugMigration,
+  ]);
 
   // Format device config for display
   const formatDeviceConfig = (config: DeviceConfig) => {
@@ -1882,11 +2346,17 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     try {
       let storedDeviceId: string | null = null;
       try {
-        storedDeviceId = window.sessionStorage.getItem('ep_migration_device_id');
+        storedDeviceId = window.sessionStorage.getItem(
+          'ep_migration_device_id',
+        );
       } catch {
         storedDeviceId = null;
       }
-      const deviceId = migrationDeviceIdRef.current || selectedDeviceId || storedDeviceId || '';
+      const deviceId =
+        migrationDeviceIdRef.current ||
+        selectedDeviceId ||
+        storedDeviceId ||
+        '';
       if (!migrationDeviceIdRef.current && deviceId) {
         migrationDeviceIdRef.current = deviceId;
       }
@@ -1909,7 +2379,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         return;
       }
 
-      const profileId = backupMapping?.profileId ?? getDeviceProfile(device)?.id ?? '';
+      const profileId =
+        backupMapping?.profileId ?? getDeviceProfile(device)?.id ?? '';
       const deviceName =
         backupMapping?.deviceName ??
         device.name ??
@@ -1935,7 +2406,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       const result = await withTimeout(
         discoverAndSaveMapping(deviceId, profileId, deviceName),
         45000,
-        'Entity re-sync timed out. Make sure the device is online and try again.'
+        'Entity re-sync timed out. Make sure the device is online and try again.',
       );
       if (!isMountedRef.current) {
         return;
@@ -1943,7 +2414,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
       if (!result?.mapping) {
         setMigrationPhase('error');
-        setMigrationError('Entity re-sync failed. Run entity discovery to update mappings.');
+        setMigrationError(
+          'Entity re-sync failed. Run entity discovery to update mappings.',
+        );
         setMigrationErrorStep('resync');
         return;
       }
@@ -1957,17 +2430,27 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
       // Before restoring zones, wait for polygon entities to become available after the update.
       const entityNamePrefix = resolveEntityPrefix({
-        mappingPrefix: result.mapping?.esphomeNodeName ?? backupMapping?.esphomeNodeName,
+        mappingPrefix:
+          result.mapping?.esphomeNodeName ?? backupMapping?.esphomeNodeName,
         devicePrefix: device.entityNamePrefix,
       });
       if (entityNamePrefix) {
-        const backupId = migrationBackupId ?? lastBackupId ?? latestBackup?.id ?? null;
-        const backup = backupId ? zoneBackups.find((item) => item.id === backupId) ?? null : null;
+        const backupId =
+          migrationBackupId ?? lastBackupId ?? latestBackup?.id ?? null;
+        const backup = backupId
+          ? (zoneBackups.find((item) => item.id === backupId) ?? null)
+          : null;
         const profile = profiles.find((item) => item.id === profileId) ?? null;
         const expected = backup ? buildExpectedPolygons(backup, profile) : [];
-        const regularCount = expected.filter((zone) => zone.type === 'regular').length;
-        const exclusionCount = expected.filter((zone) => zone.type === 'exclusion').length;
-        const entryCount = expected.filter((zone) => zone.type === 'entry').length;
+        const regularCount = expected.filter(
+          (zone) => zone.type === 'regular',
+        ).length;
+        const exclusionCount = expected.filter(
+          (zone) => zone.type === 'exclusion',
+        ).length;
+        const entryCount = expected.filter(
+          (zone) => zone.type === 'entry',
+        ).length;
         const waitStart = Date.now();
         // eslint-disable-next-line no-constant-condition
         while (true) {
@@ -1977,7 +2460,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
           const elapsed = Date.now() - waitStart;
           if (elapsed > 90_000) {
             setMigrationPhase('error');
-            setMigrationError('Timed out waiting for polygon zone entities to become available after reboot.');
+            setMigrationError(
+              'Timed out waiting for polygon zone entities to become available after reboot.',
+            );
             setMigrationErrorStep('restore');
             return;
           }
@@ -2000,7 +2485,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
               setResyncStepMessage(null);
               break;
             }
-            setResyncStepMessage(`Waiting for polygon entities (${available}/${checked})...`);
+            setResyncStepMessage(
+              `Waiting for polygon entities (${available}/${checked})...`,
+            );
           } catch (error) {
             setResyncStepMessage('Waiting for polygon entities...');
           }
@@ -2009,10 +2496,13 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         }
       }
 
-      const backupId = migrationBackupId ?? lastBackupId ?? latestBackup?.id ?? null;
+      const backupId =
+        migrationBackupId ?? lastBackupId ?? latestBackup?.id ?? null;
       if (!backupId) {
         setMigrationPhase('error');
-        setMigrationError('Zone backup not found. Create a new backup and restore manually.');
+        setMigrationError(
+          'Zone backup not found. Create a new backup and restore manually.',
+        );
         setMigrationErrorStep('restore');
         return;
       }
@@ -2026,7 +2516,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
       if (!restored) {
         setMigrationPhase('error');
-        setMigrationError('Zone restore failed. Try restoring again from Zone Backups.');
+        setMigrationError(
+          'Zone restore failed. Try restoring again from Zone Backups.',
+        );
         setMigrationErrorStep('restore');
         return;
       }
@@ -2061,7 +2553,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       if (!isMountedRef.current) {
         return;
       }
-      const message = error instanceof Error ? error.message : 'Entity re-sync failed.';
+      const message =
+        error instanceof Error ? error.message : 'Entity re-sync failed.';
       setMigrationPhase('error');
       setMigrationError(message);
       setMigrationErrorStep('resync');
@@ -2136,13 +2629,17 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
       const elapsedMs = Date.now() - startAt;
       if (elapsedMs > 2 * 60 * 1000) {
         setMigrationPhase('error');
-        setMigrationError('Timed out waiting for device entities to become available after reboot.');
+        setMigrationError(
+          'Timed out waiting for device entities to become available after reboot.',
+        );
         setMigrationErrorStep('resync');
         return;
       }
 
       try {
-        const readiness = await fetchDeviceReadiness(deviceId, { require: 'discover' });
+        const readiness = await fetchDeviceReadiness(deviceId, {
+          require: 'discover',
+        });
         if (cancelled || !isMountedRef.current) {
           return;
         }
@@ -2194,9 +2691,15 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
     if (updateStatus !== 'error') {
       return;
     }
-    if (migrationPhase !== 'idle' && migrationPhase !== 'prompt' && migrationPhase !== 'error') {
+    if (
+      migrationPhase !== 'idle' &&
+      migrationPhase !== 'prompt' &&
+      migrationPhase !== 'error'
+    ) {
       setMigrationPhase('error');
-      setMigrationError('Firmware update failed before zone migration could complete.');
+      setMigrationError(
+        'Firmware update failed before zone migration could complete.',
+      );
       if (migrationPhase === 'installing') {
         setMigrationErrorStep('install');
       }
@@ -2205,47 +2708,51 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-400" />
-      </div>
+      <div
+        className="h-48 animate-pulse rounded-xl border border-line bg-surface-2"
+        aria-busy="true"
+        aria-hidden="true"
+      />
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-4">
       {showFirmwareModal && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center">
-          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" />
-          <div className="relative z-10 w-full max-w-lg mx-4 rounded-2xl border border-slate-700/50 bg-slate-900/95 shadow-2xl">
+          <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" />
+          <div className="relative z-10 mx-4 max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-line bg-surface shadow-e2">
             <div className="flex items-start justify-between px-6 pt-6">
               <div>
-                <div className="text-lg font-semibold text-white">Firmware Update</div>
-                <div className="text-xs text-slate-400">
+                <div className="text-lg font-semibold text-fg">
+                  Firmware update
+                </div>
+                <div className="text-xs text-fg-muted">
                   {selectedDevice
                     ? `${selectedDevice.name}${selectedDevice.firmwareVersion ? ` | v${selectedDevice.firmwareVersion}` : ''}`
                     : 'Select a device to begin'}
                 </div>
               </div>
               {!modalLocked && (
-                <button
-                  type="button"
+                <IconButton
+                  icon={mdiClose}
+                  label="Close"
+                  tooltip={false}
                   onClick={() => setUpdateModalOpen(false)}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700/60 text-slate-400 transition hover:border-slate-600 hover:text-slate-200"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                />
               )}
             </div>
 
             <div className="p-6 pt-4 space-y-4">
               {needsBridgeUpdate && bridgeFlashUrl && (
                 <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4 text-sm text-amber-100">
-                  <div className="font-semibold">Quick one-time update needed</div>
+                  <div className="font-semibold">
+                    Quick one-time update needed
+                  </div>
                   <div className="mt-1 text-xs text-amber-200">
-                    Before Zone Configurator can update this device, it needs firmware v{bridgeVersion}.
-                    Install that version once, then return here and we will continue automatically.
+                    Before Zone Configurator can update this device, it needs
+                    firmware v{bridgeVersion}. Install that version once, then
+                    return here and we will continue automatically.
                   </div>
                   {bridgeStatusMessage && (
                     <div className="mt-2 flex items-center gap-2 text-xs text-amber-200">
@@ -2270,7 +2777,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                       disabled={bridgeResyncing}
                       className="rounded-lg border border-amber-400/60 px-3 py-2 text-xs font-semibold text-amber-100 transition hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {bridgeResyncing ? 'Checking device...' : `I have installed v${bridgeVersion}`}
+                      {bridgeResyncing
+                        ? 'Checking device...'
+                        : `I have installed v${bridgeVersion}`}
                     </button>
                   </div>
                 </div>
@@ -2279,7 +2788,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
               {updateStatus === 'checking' && (
                 <div className="flex items-center gap-3 rounded-xl border border-cyan-500/40 bg-cyan-500/10 p-4 text-sm text-cyan-100">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-cyan-300 border-t-transparent" />
-                  Checking for the latest firmware and reading device configuration...
+                  Checking for the latest firmware and reading device
+                  configuration...
                 </div>
               )}
 
@@ -2308,11 +2818,16 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                     <div>
                       <div className="text-base font-semibold text-cyan-100">
                         {activeStep
-                          ? migrationSteps.find((step) => step.key === activeStep)?.label ?? 'Working...'
+                          ? (migrationSteps.find(
+                              (step) => step.key === activeStep,
+                            )?.label ?? 'Working...')
                           : 'Working...'}
                       </div>
                       <div className="text-xs text-slate-400">
-                        {activeStep ? getMigrationStepDetail(activeStep, 'active') || 'Working on it...' : 'Working on it...'}
+                        {activeStep
+                          ? getMigrationStepDetail(activeStep, 'active') ||
+                            'Working on it...'
+                          : 'Working on it...'}
                       </div>
                     </div>
                   </div>
@@ -2325,23 +2840,30 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                       <div className="h-2 w-full rounded-full bg-slate-700/70 overflow-hidden">
                         <div
                           className="h-2 rounded-full bg-cyan-400 transition-all duration-500"
-                          style={{ width: `${Math.min(100, Math.max(0, updateProgress))}%` }}
+                          style={{
+                            width: `${Math.min(100, Math.max(0, updateProgress))}%`,
+                          }}
                         />
                       </div>
                     </div>
                   ) : updateStatus === 'updating' ? (
-                    <div className="text-xs text-slate-400">Waiting for update progress...</div>
+                    <div className="text-xs text-slate-400">
+                      Waiting for update progress...
+                    </div>
                   ) : null}
                   {updateStatus === 'updating' && updateEntityStatus && (
                     <div className="text-xs text-slate-400">
                       Update entity: {updateEntityStatus.state}
-                      {updateInstalledVersion ? ` | Installed: ${updateInstalledVersion}` : ''}
+                      {updateInstalledVersion
+                        ? ` | Installed: ${updateInstalledVersion}`
+                        : ''}
                     </div>
                   )}
                   {activeStep === 'install' && (
                     <div className="text-[11px] text-slate-500">
-                      This can take a few minutes. If the device stays offline for 2 minutes, we will stop waiting.
-                      Keep this window open while the update completes.
+                      This can take a few minutes. If the device stays offline
+                      for 2 minutes, we will stop waiting. Keep this window open
+                      while the update completes.
                     </div>
                   )}
                   {migrationStepsPanel}
@@ -2357,7 +2879,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                       <div className="absolute inset-2 rounded-full bg-cyan-500/10 animate-pulse" />
                     </div>
                     <div>
-                      <div className="text-base font-semibold text-cyan-100">Installing firmware</div>
+                      <div className="text-base font-semibold text-cyan-100">
+                        Installing firmware
+                      </div>
                       <div className="text-xs text-slate-400">
                         {updateMonitorMessage || 'Working on it...'}
                       </div>
@@ -2372,22 +2896,29 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                       <div className="h-2 w-full rounded-full bg-slate-700/70 overflow-hidden">
                         <div
                           className="h-2 rounded-full bg-cyan-400 transition-all duration-500"
-                          style={{ width: `${Math.min(100, Math.max(0, updateProgress))}%` }}
+                          style={{
+                            width: `${Math.min(100, Math.max(0, updateProgress))}%`,
+                          }}
                         />
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-slate-400">Waiting for update progress...</div>
+                    <div className="text-xs text-slate-400">
+                      Waiting for update progress...
+                    </div>
                   )}
                   {updateEntityStatus && (
                     <div className="text-xs text-slate-400">
                       Update entity: {updateEntityStatus.state}
-                      {updateInstalledVersion ? ` | Installed: ${updateInstalledVersion}` : ''}
+                      {updateInstalledVersion
+                        ? ` | Installed: ${updateInstalledVersion}`
+                        : ''}
                     </div>
                   )}
                   <div className="text-[11px] text-slate-500">
-                    This can take a few minutes. If the device stays offline for 2 minutes, we will stop waiting.
-                    Keep this window open while the update completes.
+                    This can take a few minutes. If the device stays offline for
+                    2 minutes, we will stop waiting. Keep this window open while
+                    the update completes.
                   </div>
                   {migrationStepsPanel}
                 </div>
@@ -2397,7 +2928,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                 <div className="space-y-4">
                   {!migrationPromptOpen && !needsBridgeUpdate && (
                     <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-100">
-                      Firmware {preparedVersion ? `v${preparedVersion}` : 'update'} is ready to install.
+                      Firmware{' '}
+                      {preparedVersion ? `v${preparedVersion}` : 'update'} is
+                      ready to install.
                     </div>
                   )}
                   {migrationPromptOpen && (
@@ -2417,13 +2950,19 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
+                          type="button"
                           onClick={confirmMigrationAndInstall}
-                          disabled={creatingBackup || migrationPhase === 'backing_up'}
+                          disabled={
+                            creatingBackup || migrationPhase === 'backing_up'
+                          }
                           className="rounded-lg bg-amber-500/30 px-3 py-1.5 text-xs font-semibold text-amber-50 transition hover:bg-amber-500/40 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {creatingBackup || migrationPhase === 'backing_up' ? 'Starting...' : 'Continue and Migrate'}
+                          {creatingBackup || migrationPhase === 'backing_up'
+                            ? 'Starting...'
+                            : 'Continue and Migrate'}
                         </button>
                         <button
+                          type="button"
                           onClick={() => {
                             cancelMigration();
                             setUpdateModalOpen(false);
@@ -2438,7 +2977,9 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                   {migrationStepsPanel}
                   {validation && validation.warnings.length > 0 && (
                     <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
-                      <h4 className="mb-2 text-sm font-semibold text-amber-200">Warnings</h4>
+                      <h4 className="mb-2 text-sm font-semibold text-amber-200">
+                        Warnings
+                      </h4>
                       <ul className="space-y-1 text-xs text-amber-200">
                         {validation.warnings.map((issue, index) => (
                           <li key={index}>{issue.message}</li>
@@ -2449,6 +2990,7 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                   {canInstall && (
                     <div className="space-y-2">
                       <button
+                        type="button"
                         onClick={handleTriggerUpdate}
                         className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
                       >
@@ -2465,26 +3007,27 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                     <div className="flex items-start gap-3 rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-4 text-sm text-emerald-100">
                       <div className="relative mt-0.5 flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/50 bg-emerald-500/20">
                         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400/30" />
-                        <svg
-                          viewBox="0 0 24 24"
-                          aria-hidden="true"
-                          className="relative h-5 w-5 text-emerald-200"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M5 13l4 4L19 7" />
-                        </svg>
+                        <Icon
+                          path={mdiCheck}
+                          size={20}
+                          className="relative text-emerald-200"
+                        />
                       </div>
                       <div>
                         <div className="text-sm font-semibold text-emerald-100">
                           Firmware update successful
                         </div>
                         <div className="text-xs text-emerald-100/90">
-                          Firmware updated{updateInstalledVersion ? ` to v${updateInstalledVersion}` : preparedVersion ? ` to v${preparedVersion}` : ''}.{' '}
-                          {rebootConfirmed ? 'Device rebooted and is back online.' : 'Device may reboot briefly.'}
+                          Firmware updated
+                          {updateInstalledVersion
+                            ? ` to v${updateInstalledVersion}`
+                            : preparedVersion
+                              ? ` to v${preparedVersion}`
+                              : ''}
+                          .{' '}
+                          {rebootConfirmed
+                            ? 'Device rebooted and is back online.'
+                            : 'Device may reboot briefly.'}
                         </div>
                       </div>
                     </div>
@@ -2508,7 +3051,8 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                 <div className="space-y-4">
                   {migrationStepsPanel}
                   <div className="rounded-xl border border-rose-500/50 bg-rose-500/10 p-4 text-sm text-rose-100">
-                    Update failed. Check the error message above or Home Assistant for details.
+                    Update failed. Check the error message above or Home
+                    Assistant for details.
                   </div>
                   <button
                     type="button"
@@ -2533,13 +3077,17 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
 
                   {deviceConfig?.configSource === 'inferred' && (
                     <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
-                      <h4 className="mb-2 text-sm font-semibold text-amber-200">Build Configuration Unavailable</h4>
+                      <h4 className="mb-2 text-sm font-semibold text-amber-200">
+                        Build Configuration Unavailable
+                      </h4>
                       <p className="mb-3 text-xs text-amber-200">
-                        This device did not return its build configuration via the get_build_flags service.
-                        To avoid installing incompatible firmware, updates are disabled.
+                        This device did not return its build configuration via
+                        the get_build_flags service. To avoid installing
+                        incompatible firmware, updates are disabled.
                       </p>
                       <p className="mb-3 text-xs text-amber-200">
-                        Flash the latest firmware via USB to enable over-the-air updates in this app.
+                        Flash the latest firmware via USB to enable over-the-air
+                        updates in this app.
                       </p>
                       <a
                         href="https://docs.everythingsmart.io"
@@ -2552,84 +3100,84 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                     </div>
                   )}
 
-                  {deviceConfig?.configSource === 'entities' && availableUpdates.length > 0 && (
-                    <div className="space-y-3">
-                      {latestUpdateMigration && (
-                        <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-200">
-                          <div className="text-sm font-semibold text-amber-100">
-                            Polygon migration required
-                          </div>
-                          <p className="mt-1">
-                            {latestUpdateMigration.description} The installer will back up and restore your zones automatically.
-                          </p>
-                        </div>
-                      )}
-                      {availableUpdates.map((update, index) => (
-                        <div
-                          key={index}
-                          className={`rounded-xl border p-3 cursor-pointer transition ${
-                            selectedUpdate === update
-                              ? 'border-emerald-400 bg-emerald-500/20'
-                              : 'border-slate-600/50 bg-slate-800/30 hover:border-emerald-500/50'
-                          }`}
-                          onClick={() => setSelectedUpdate(update)}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <span className="text-sm font-semibold text-emerald-300">
-                                v{update.newVersion}
-                              </span>
-                              <span className="ml-2 text-xs text-slate-400">
-                                ({update.channel})
-                              </span>
+                  {deviceConfig?.configSource === 'entities' &&
+                    availableUpdates.length > 0 && (
+                      <div className="space-y-3">
+                        {latestUpdateMigration && (
+                          <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-xs text-amber-200">
+                            <div className="text-sm font-semibold text-amber-100">
+                              Polygon migration required
                             </div>
-                            <span className="text-xs text-slate-500">
-                              from v{update.currentVersion}
-                            </span>
+                            <p className="mt-1">
+                              {latestUpdateMigration.description} The installer
+                              will back up and restore your zones automatically.
+                            </p>
                           </div>
-                          {update.releaseNotes && (
-                            <p className="mt-1 text-xs text-slate-400">{update.releaseNotes}</p>
-                          )}
-                          {(() => {
-                            const migrationInfo = getZoneMigrationInfo(
-                              update.currentVersion,
-                              update.newVersion,
-                              deviceConfig?.model ?? selectedDevice?.model ?? undefined,
-                              update.migration
-                            );
-                            if (!migrationInfo) return null;
-                            return (
-                              <div className="mt-2 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-xs text-amber-200">
-                                <strong>Migration Required:</strong> {migrationInfo.description}
-                                {migrationInfo.backupRequired && (
-                                  <span className="ml-1 text-amber-400">(Auto migrate)</span>
-                                )}
+                        )}
+                        {availableUpdates.map((update) => (
+                          <button
+                            type="button"
+                            key={`${update.channel}-${update.newVersion}`}
+                            aria-pressed={selectedUpdate === update}
+                            className={`block w-full rounded-xl border p-3 text-left transition ${
+                              selectedUpdate === update
+                                ? 'border-accent/50 bg-accent-tint'
+                                : 'border-line bg-surface hover:bg-surface-2'
+                            }`}
+                            onClick={() => setSelectedUpdate(update)}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex-1">
+                                <span className="text-sm font-semibold text-fg">
+                                  v{update.newVersion}
+                                </span>
+                                <span className="ml-2 text-xs text-fg-muted">
+                                  ({update.channel})
+                                </span>
                               </div>
-                            );
-                          })()}
-                        </div>
-                      ))}
+                              <span className="text-xs text-fg-muted">
+                                from v{update.currentVersion}
+                              </span>
+                              {selectedUpdate === update && (
+                                <Icon
+                                  path={mdiCheckCircle}
+                                  size={20}
+                                  className="text-accent-ink"
+                                />
+                              )}
+                            </div>
+                            {update.releaseNotes && (
+                              <p className="mt-1 text-xs text-slate-400">
+                                {update.releaseNotes}
+                              </p>
+                            )}
+                            {(() => {
+                              const migrationInfo = getZoneMigrationInfo(
+                                update.currentVersion,
+                                update.newVersion,
+                                deviceConfig?.model ??
+                                  selectedDevice?.model ??
+                                  undefined,
+                                update.migration,
+                              );
+                              if (!migrationInfo) return null;
+                              return (
+                                <div className="mt-2 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-xs text-amber-200">
+                                  <strong>Migration Required:</strong>{' '}
+                                  {migrationInfo.description}
+                                  {migrationInfo.backupRequired && (
+                                    <span className="ml-1 text-amber-400">
+                                      (Auto migrate)
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </button>
+                        ))}
 
-                      <button
-                        onClick={handleAutoInstall}
-                        disabled={
-                          updateStatus === 'preparing' ||
-                          updateStatus === 'downloading' ||
-                          updateStatus === 'updating' ||
-                          migrationInProgress
-                        }
-                        className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Install Latest Update
-                      </button>
-                    </div>
-                  )}
-
-                  {deviceConfig?.configSource === 'entities' && availableUpdates.length === 0 && (
-                    <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 text-center">
-                      <div className="text-sm text-slate-300">Your device is running the latest firmware.</div>
-                      <div className="mt-3">
                         <button
+                          type="button"
                           onClick={handleAutoInstall}
                           disabled={
                             updateStatus === 'preparing' ||
@@ -2637,17 +3185,42 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
                             updateStatus === 'updating' ||
                             migrationInProgress
                           }
-                          className="rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          Reinstall Latest Firmware
+                          Install Latest Update
                         </button>
                       </div>
-                    </div>
-                  )}
+                    )}
+
+                  {deviceConfig?.configSource === 'entities' &&
+                    availableUpdates.length === 0 && (
+                      <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 text-center">
+                        <div className="text-sm text-slate-300">
+                          Your device is running the latest firmware.
+                        </div>
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={handleAutoInstall}
+                            disabled={
+                              updateStatus === 'preparing' ||
+                              updateStatus === 'downloading' ||
+                              updateStatus === 'updating' ||
+                              migrationInProgress
+                            }
+                            className="rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Reinstall Latest Firmware
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                   {validation && validation.warnings.length > 0 && (
                     <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
-                      <h4 className="mb-2 text-sm font-semibold text-amber-200">Warnings</h4>
+                      <h4 className="mb-2 text-sm font-semibold text-amber-200">
+                        Warnings
+                      </h4>
                       <ul className="space-y-1 text-xs text-amber-200">
                         {validation.warnings.map((issue, index) => (
                           <li key={index}>{issue.message}</li>
@@ -2662,397 +3235,308 @@ export const FirmwareUpdateSection: React.FC<FirmwareUpdateSectionProps> = ({
         </div>
       )}
 
-      <div className="rounded-2xl border border-slate-700/60 bg-gradient-to-br from-slate-900/90 via-slate-900/70 to-slate-800/50 p-6 shadow-lg">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Firmware Update</h2>
-            <p className="text-xs text-slate-400">
-              Safely update your device using its build configuration and the local proxy.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            {selectedDevice && (
-              <span className="rounded-full border border-slate-700/70 bg-slate-800/60 px-3 py-1 text-slate-300">
-                {selectedDevice.name}
-              </span>
-            )}
-            <span className={`rounded-full border px-3 py-1 ${configStatusClass}`}>
-              {configStatus}
-            </span>
-          </div>
-        </div>
-      </div>
+      <Panel
+        title="Device"
+        actions={
+          selectedDevice && (
+            <Badge tone={configStatusTone}>{configStatus}</Badge>
+          )
+        }
+      >
+        {devices.length === 0 ? (
+          <p className="text-sm text-fg-muted">
+            No Everything Presence devices found yet.
+          </p>
+        ) : (
+          <ChoiceList
+            ariaLabel="Device to update"
+            value={selectedDeviceId || null}
+            onChange={handleDeviceChange}
+            options={devices.map((device) => {
+              const profile = getDeviceProfile(device);
+              return {
+                value: device.id,
+                icon: mdiRadar,
+                title: device.name,
+                subtitle: [
+                  device.model || profile?.label || 'Unknown model',
+                  device.firmwareVersion
+                    ? `v${device.firmwareVersion}`
+                    : 'Firmware unknown',
+                  device.areaName,
+                ]
+                  .filter(Boolean)
+                  .join(' · '),
+              };
+            })}
+          />
+        )}
 
-      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/50 p-5 shadow-lg">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-sm font-semibold text-cyan-200">
-              1
-            </span>
-            <div>
-              <h3 className="text-sm font-semibold text-slate-200">Select device</h3>
-              <p className="text-xs text-slate-500">Pick a device, then check for updates in the modal.</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          {devices.length === 0 ? (
-            <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-4 text-sm text-slate-400">
-              No Everything Presence devices found yet.
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {devices.map((device) => {
-                const profile = getDeviceProfile(device);
-                const iconUrl = profile?.iconUrl;
-                const isSelected = device.id === selectedDeviceId;
-
-                return (
-                  <button
-                    type="button"
-                    key={device.id}
-                    onClick={() => handleDeviceChange(device.id)}
-                    className={`group w-full rounded-xl border p-4 text-left transition ${
-                      isSelected
-                        ? 'border-cyan-400/70 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(34,211,238,0.35)]'
-                        : 'border-slate-700/60 bg-slate-800/40 hover:border-cyan-500/40 hover:bg-slate-800/70'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-700/60 bg-slate-900/60">
-                        {iconUrl ? (
-                          <img
-                            src={iconUrl}
-                            alt={`${device.name} icon`}
-                            className="h-10 w-10 object-contain"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span className="text-[10px] font-semibold text-slate-400">EP</span>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-slate-100">{device.name}</span>
-                          {isSelected && (
-                            <span className="rounded-full border border-cyan-400/60 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-100">
-                              Selected
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {device.model || profile?.label || 'Unknown model'}
-                        </div>
-                        <div className="mt-1 text-[11px] text-slate-500">
-                          {device.firmwareVersion ? `v${device.firmwareVersion}` : 'Firmware unknown'}
-                          {device.areaName ? ` | ${device.areaName}` : ''}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            onClick={() => handleCheckForUpdates()}
-            disabled={checkUpdatesDisabled}
-            className="w-full rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          >
-            {checkingUpdates ? (
-              <span className="flex items-center justify-center gap-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Checking for updates...
-              </span>
-            ) : (
-              'Check for Updates'
-            )}
-          </button>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Tooltip content={selectedDeviceId ? null : 'Pick a device first'}>
+            <Button
+              variant="primary"
+              icon={mdiCloudDownloadOutline}
+              busy={checkingUpdates}
+              disabled={Boolean(selectedDeviceId) && checkUpdatesDisabled}
+              aria-disabled={!selectedDeviceId || undefined}
+              onClick={() => {
+                if (selectedDeviceId) handleCheckForUpdates();
+              }}
+              className={cx(
+                'w-full sm:w-auto',
+                !selectedDeviceId && 'cursor-not-allowed opacity-50',
+              )}
+            >
+              Check for updates
+            </Button>
+          </Tooltip>
           {selectedDevice && (
-            <div className="text-[11px] text-slate-500">
+            <span className="text-xs text-fg-muted">
               {selectedDevice.firmwareVersion
                 ? `Current firmware v${selectedDevice.firmwareVersion}`
                 : 'Firmware version unknown'}
-            </div>
+            </span>
           )}
         </div>
 
         {deviceConfig && (
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => setShowBuildDetails((prev) => !prev)}
-              className="flex w-full items-center justify-between text-sm font-semibold text-slate-200"
+          <div className="mt-3 border-t border-line pt-1">
+            <Disclosure
+              title="Build configuration"
+              open={showBuildDetails}
+              onToggle={() => setShowBuildDetails((prev) => !prev)}
+              trailing={
+                <Badge
+                  tone={
+                    deviceConfig.configSource === 'entities'
+                      ? 'success'
+                      : 'warning'
+                  }
+                >
+                  {deviceConfig.configSource === 'entities'
+                    ? 'Reported by device'
+                    : 'Inferred'}
+                </Badge>
+              }
             >
-              <span>Build configuration</span>
-              <span className="text-slate-400">{showBuildDetails ? '-' : '+'}</span>
-            </button>
-
-            {showBuildDetails && (
-              <div className="mt-3 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-                    Build Configuration
-                  </div>
-                  <span
-                    className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                      deviceConfig.configSource === 'entities'
-                        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
-                        : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-                    }`}
-                  >
-                    {deviceConfig.configSource === 'entities' ? 'Reported by device' : 'Inferred'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                  <div>
-                    <span className="text-slate-500">Model:</span>{' '}
-                    <span className="text-slate-300">{deviceConfig.model}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Channel:</span>{' '}
-                    <span className="text-slate-300">{deviceConfig.firmware_channel}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Features:</span>{' '}
-                    <span className="text-slate-300">{formatDeviceConfig(deviceConfig)}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Sensor:</span>{' '}
-                    <span className="text-slate-300">{deviceConfig.sensor_variant || 'Default'}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Board Rev:</span>{' '}
-                    <span className="text-slate-300">{deviceConfig.board_revision}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">Network:</span>{' '}
-                    <span className="text-slate-300">{deviceConfig.ethernet_enabled ? 'Ethernet' : 'WiFi'}</span>
-                  </div>
-                </div>
-              </div>
-            )}
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr_auto_1fr]">
+                {(
+                  [
+                    ['Model', deviceConfig.model],
+                    ['Channel', deviceConfig.firmware_channel],
+                    ['Features', formatDeviceConfig(deviceConfig)],
+                    ['Sensor', deviceConfig.sensor_variant || 'Default'],
+                    ['Board rev', deviceConfig.board_revision],
+                    [
+                      'Network',
+                      deviceConfig.ethernet_enabled ? 'Ethernet' : 'WiFi',
+                    ],
+                  ] as const
+                ).map(([label, value]) => (
+                  <Fragment key={label}>
+                    <dt className="text-fg-muted">{label}</dt>
+                    <dd className="min-w-0 break-words text-fg">{value}</dd>
+                  </Fragment>
+                ))}
+              </dl>
+            </Disclosure>
           </div>
         )}
-      </div>
+      </Panel>
 
-      <div className="rounded-2xl border border-slate-700/60 bg-slate-900/50 p-5 shadow-lg">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-200">Advanced options</h3>
-            <p className="text-xs text-slate-500">Manual manifest, LAN proxy, and cache controls.</p>
-          </div>
-        </div>
+      <Panel title="Advanced">
+        <p className="text-sm text-fg-muted">
+          Manual manifest, LAN proxy and cache controls.
+        </p>
+        <div className="mt-2 divide-y divide-line">
+          <Disclosure
+            title="Manual firmware URL"
+            open={showManualMode}
+            onToggle={() => setShowManualMode(!showManualMode)}
+          >
+            <div className="flex flex-col gap-3">
+              {updatesBlocked && (
+                <Note tone="warning">{updatesBlockedMessage}</Note>
+              )}
+              <Field
+                label="Firmware manifest URL"
+                htmlFor="firmware-manifest-url"
+                help="The full URL of the firmware manifest.json file."
+              >
+                <input
+                  id="firmware-manifest-url"
+                  type="url"
+                  value={manifestUrl}
+                  onChange={(e) => setManifestUrl(e.target.value)}
+                  placeholder="https://example.com/firmware/manifest.json"
+                  disabled={updatesBlocked}
+                  className={FIELD_INPUT}
+                />
+              </Field>
+              <Button
+                busy={
+                  updateStatus === 'preparing' || updateStatus === 'downloading'
+                }
+                disabled={
+                  !selectedDeviceId ||
+                  !manifestUrl ||
+                  updatesBlocked ||
+                  updateStatus === 'updating'
+                }
+                onClick={handleManualPrepare}
+                className="self-start"
+              >
+                Download and prepare manual firmware
+              </Button>
+            </div>
+          </Disclosure>
 
-        <div className="mt-4 divide-y divide-slate-700/60">
-          <div className="py-4">
-            <button
-              onClick={() => setShowManualMode(!showManualMode)}
-              className="flex w-full items-center justify-between text-sm font-semibold text-slate-200"
-            >
-              <span>Manual Firmware URL</span>
-              <span className="text-slate-400">{showManualMode ? '-' : '+'}</span>
-            </button>
+          <Disclosure
+            title="LAN configuration"
+            open={showSettings}
+            onToggle={() => setShowSettings(!showSettings)}
+          >
+            <div className="flex flex-col gap-3">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg bg-surface-2 px-3 py-2.5 text-sm">
+                <dt className="text-fg-muted">Auto-detected LAN IP</dt>
+                <dd className="text-fg">
+                  {autoDetectedIp || 'Could not detect'}
+                </dd>
+                <dt className="text-fg-muted">Firmware server URL</dt>
+                <dd className="break-all font-mono text-xs leading-5 text-accent-ink">
+                  http://{effectiveLanIp}:{lanPort}
+                </dd>
+              </dl>
+              <Field
+                label="LAN IP override"
+                htmlFor="firmware-lan-ip"
+                help="Devices download firmware from the server URL above. Set this when the detected address is not reachable from your devices."
+              >
+                <input
+                  id="firmware-lan-ip"
+                  type="text"
+                  inputMode="decimal"
+                  value={lanIpOverride}
+                  onChange={(e) => setLanIpOverride(e.target.value)}
+                  placeholder="192.168.1.100"
+                  className={FIELD_INPUT}
+                />
+              </Field>
+              <Button
+                variant="primary"
+                busy={savingSettings}
+                onClick={handleSaveSettings}
+                className="self-start"
+              >
+                Save settings
+              </Button>
+            </div>
+          </Disclosure>
 
-            {showManualMode && (
-              <div className="mt-3 space-y-3">
-                {updatesBlocked && (
-                  <div className="rounded border border-amber-500/50 bg-amber-500/10 p-2 text-xs text-amber-200">
-                    {updatesBlockedMessage}
-                  </div>
-                )}
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">
-                    Firmware Manifest URL
-                  </label>
-                  <input
-                    type="text"
-                    value={manifestUrl}
-                    onChange={(e) => setManifestUrl(e.target.value)}
-                    placeholder="https://example.com/firmware/manifest.json"
-                    disabled={updatesBlocked}
-                    className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">
-                    Enter the full URL to the firmware manifest.json file
-                  </p>
-                </div>
-                <button
-                  onClick={handleManualPrepare}
-                  disabled={
-                    !selectedDeviceId ||
-                    !manifestUrl ||
-                    updatesBlocked ||
-                    updateStatus === 'preparing' ||
-                    updateStatus === 'downloading' ||
-                    updateStatus === 'updating'
-                  }
-                  className="w-full rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {updateStatus === 'preparing' || updateStatus === 'downloading'
-                    ? 'Preparing...'
-                    : 'Download and Prepare Manual Firmware'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="py-4">
-            <button
-              onClick={() => setShowSettings(!showSettings)}
-              className="flex w-full items-center justify-between text-sm font-semibold text-slate-200"
-            >
-              <span>LAN Configuration</span>
-              <span className="text-slate-400">{showSettings ? '-' : '+'}</span>
-            </button>
-
-            {showSettings && (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">
-                    Auto-detected LAN IP
-                  </label>
-                  <div className="rounded border border-slate-600 bg-slate-700/50 px-3 py-2 text-sm text-slate-300">
-                    {autoDetectedIp || 'Could not detect'}
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">
-                    LAN IP Override (optional)
-                  </label>
-                  <input
-                    type="text"
-                    value={lanIpOverride}
-                    onChange={(e) => setLanIpOverride(e.target.value)}
-                    placeholder="e.g., 192.168.1.100"
-                    className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-slate-400">
-                    Firmware Server URL (devices will download from here)
-                  </label>
-                  <div className="rounded border border-slate-600 bg-slate-700/50 px-3 py-2 text-sm text-cyan-400">
-                    http://{effectiveLanIp}:{lanPort}
-                  </div>
-                </div>
-                <button
-                  onClick={handleSaveSettings}
-                  disabled={savingSettings}
-                  className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-500 disabled:opacity-50"
-                >
-                  {savingSettings ? 'Saving...' : 'Save Settings'}
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="py-4">
-            <button
-              onClick={() => setShowCache(!showCache)}
-              className="flex w-full items-center justify-between text-sm font-semibold text-slate-200"
-            >
-              <span>Cached Firmware ({cachedEntries.length})</span>
-              <span className="text-slate-400">{showCache ? '-' : '+'}</span>
-            </button>
-
-            {showCache && (
-              <div className="mt-3 space-y-3">
-                {cachedEntries.length === 0 ? (
-                  <div className="py-4 text-center text-sm text-slate-500">
-                    No cached firmware
-                  </div>
-                ) : (
-                  cachedEntries.map((entry) => {
+          <Disclosure
+            title="Cached firmware"
+            open={showCache}
+            onToggle={() => setShowCache(!showCache)}
+            trailing={<Badge>{cachedEntries.length}</Badge>}
+          >
+            <div className="flex flex-col gap-3">
+              {cachedEntries.length === 0 ? (
+                <p className="text-sm text-fg-muted">No cached firmware</p>
+              ) : (
+                <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
+                  {cachedEntries.map((entry) => {
                     const device = devices.find((d) => d.id === entry.deviceId);
-                    const isMatchingDevice = selectedDeviceId === entry.deviceId;
+                    const isMatchingDevice =
+                      selectedDeviceId === entry.deviceId;
                     const installDisabled =
                       !isMatchingDevice ||
                       updateStatus === 'preparing' ||
                       updateStatus === 'downloading' ||
                       updateStatus === 'updating';
                     return (
-                      <div
+                      <li
                         key={`${entry.deviceId}-${entry.token}`}
-                        className="flex items-center justify-between rounded border border-slate-700/50 bg-slate-800/40 p-3"
+                        className="flex items-center gap-3 px-3 py-2"
                       >
-                        <div className="text-xs">
-                          <div className="font-semibold text-slate-200">
+                        <div className="min-w-0 flex-1 text-xs">
+                          <div className="truncate text-sm font-medium text-fg">
                             {device?.name || entry.deviceId}
                           </div>
-                          <div className="text-slate-400">
-                            Version: {entry.version} | Files: {entry.binaryCount}
-                          </div>
-                          <div className="text-slate-500">
-                            Cached: {new Date(entry.cachedAt).toLocaleString()}
+                          <div className="text-fg-muted">
+                            v{entry.version} · {entry.binaryCount} file
+                            {entry.binaryCount === 1 ? '' : 's'} · cached{' '}
+                            {new Date(entry.cachedAt).toLocaleString()}
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleInstallCachedEntry(entry)}
+                        <Tooltip
+                          content={
+                            isMatchingDevice
+                              ? null
+                              : 'Select this device above to install'
+                          }
+                        >
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             disabled={installDisabled}
-                            className="rounded bg-cyan-600/20 px-2 py-1 text-xs text-cyan-200 transition hover:bg-cyan-600/30 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => handleInstallCachedEntry(entry)}
                           >
-                            {isMatchingDevice ? 'Install' : 'Select device'}
-                          </button>
-                          <button
-                            onClick={() => handleDeleteCacheEntry(entry.deviceId, entry.token)}
-                            className="rounded bg-rose-600/20 px-2 py-1 text-xs text-rose-300 transition hover:bg-rose-600/30"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
+                            Install
+                          </Button>
+                        </Tooltip>
+                        <IconButton
+                          icon={mdiDeleteOutline}
+                          label="Delete cached firmware"
+                          size="sm"
+                          onClick={() =>
+                            handleDeleteCacheEntry(entry.deviceId, entry.token)
+                          }
+                          className="hover:text-danger-ink"
+                        />
+                      </li>
                     );
-                  })
-                )}
-
-                <div className="rounded-lg border border-slate-700/60 bg-slate-900/40 p-3">
-                  <label className="mb-1 block text-xs text-slate-400">
-                    Versions to keep per device
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={cacheKeepCount}
-                    onChange={(e) => {
-                      const value = Number(e.target.value);
-                      setCacheKeepCount(Number.isFinite(value) && value > 0 ? value : 1);
-                    }}
-                    className="w-full rounded border border-slate-600 bg-slate-700 px-3 py-2 text-sm text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-                  />
-                  <p className="mt-1 text-xs text-slate-500">
-                    Keeps the most recent distinct firmware versions per device.
-                  </p>
-                  <button
-                    onClick={handleSaveCacheSettings}
-                    disabled={savingCacheSettings}
-                    className="mt-2 rounded-lg bg-cyan-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-500 disabled:opacity-50"
-                  >
-                    {savingCacheSettings ? 'Saving...' : 'Save Cache Settings'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+                  })}
+                </ul>
+              )}
+              <Field
+                label="Versions to keep per device"
+                htmlFor="firmware-cache-keep"
+                help="Keeps the most recent distinct firmware versions per device."
+              >
+                <input
+                  id="firmware-cache-keep"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  step={1}
+                  value={cacheKeepCount}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    setCacheKeepCount(
+                      Number.isFinite(value) && value > 0 ? value : 1,
+                    );
+                  }}
+                  className={cx(FIELD_INPUT, 'max-w-32 tabular-nums')}
+                />
+              </Field>
+              <Button
+                busy={savingCacheSettings}
+                onClick={handleSaveCacheSettings}
+                className="self-start"
+              >
+                Save cache settings
+              </Button>
+            </div>
+          </Disclosure>
         </div>
 
-        <div className="mt-4 rounded-lg border border-slate-700/40 bg-slate-800/30 p-3 text-xs text-slate-500">
-          <p className="mb-2">
-            <strong>How it works:</strong> Use "Check for Updates" to read the device build config and match
-            compatible firmware.
-          </p>
-          <p>
-            <strong>Manual mode:</strong> If auto-detection fails, provide a manifest URL to prepare firmware
-            directly.
-          </p>
-        </div>
-      </div>
+        <Note tone="info" className="mt-3">
+          "Check for updates" reads the device build configuration and matches
+          compatible firmware. If that fails, prepare firmware from a manifest
+          URL under Manual firmware URL.
+        </Note>
+      </Panel>
     </div>
   );
 };
