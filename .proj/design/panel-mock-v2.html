@@ -1,0 +1,1479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Presence Rooms v2</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --primary-color: #03a9f4;
+  --text-primary-color: #fff;
+  --primary-text-color: #212121;
+  --secondary-text-color: #727272;
+  --disabled-text-color: #bdbdbd;
+  --divider-color: #e0e0e0;
+  --card-background-color: #fff;
+  --secondary-background-color: #f5f5f5;
+  --primary-background-color: #fafafa;
+  --app-header-background-color: var(--primary-color);
+  --app-header-text-color: #fff;
+  --success-color: #43a047;
+  --warning-color: #ff9800;
+  --error-color: #db4437;
+
+  --epp-accent: var(--primary-color);
+  --epp-accent-text: var(--text-primary-color);
+  --epp-accent-ink: #0277bd;
+  --epp-accent-tint: rgba(3, 169, 244, 0.12);
+  --epp-success: var(--success-color);
+  --epp-success-ink: #2e7d32;
+  --epp-warning: var(--warning-color);
+  --epp-warning-ink: #a65f00;
+  --epp-warning-tint: rgba(255, 152, 0, 0.14);
+  --epp-danger: var(--error-color);
+  --epp-danger-ink: #c62828;
+  --epp-text: var(--primary-text-color);
+  --epp-text-muted: var(--secondary-text-color);
+  --epp-text-disabled: var(--disabled-text-color);
+  --epp-border: var(--divider-color);
+  --epp-surface: var(--card-background-color);
+  --epp-surface-2: var(--secondary-background-color);
+  --epp-bg: var(--primary-background-color);
+  --epp-scrim: rgba(0, 0, 0, 0.42);
+
+  --epp-space-1: 4px;
+  --epp-space-2: 8px;
+  --epp-space-3: 12px;
+  --epp-space-4: 16px;
+  --epp-space-5: 24px;
+  --epp-space-6: 32px;
+  --epp-radius-sm: 6px;
+  --epp-radius-md: 10px;
+  --epp-radius-lg: 16px;
+  --epp-radius-pill: 9999px;
+  --epp-elevation-1: 0 2px 8px rgba(0, 0, 0, 0.12);
+  --epp-elevation-2: 0 6px 20px rgba(0, 0, 0, 0.18);
+  --epp-font-family: Roboto, "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --epp-font-xs: 12px;
+  --epp-font-sm: 13px;
+  --epp-font-base: 14px;
+  --epp-font-md: 15px;
+  --epp-font-lg: 16px;
+  --epp-font-xl: 18px;
+  --epp-font-2xl: 20px;
+  --epp-font-display: 34px;
+  --epp-weight-regular: 400;
+  --epp-weight-medium: 500;
+  --epp-weight-semibold: 600;
+  --epp-control-height: 40px;
+  --epp-control-height-sm: 32px;
+  --epp-focus-ring: 2px solid var(--primary-color);
+  --epp-header-h: 56px;
+  --epp-insp-w: 360px;
+
+  --cv-bg: #fdfdfc;
+  --cv-grid-minor: rgba(33, 33, 33, 0.06);
+  --cv-grid-major: rgba(33, 33, 33, 0.14);
+  --cv-axis: #6b6b6b;
+  --cv-wall: #37474f;
+  --cv-room: #fefefe;
+  --cv-cover: rgba(3, 169, 244, 0.10);
+  --cv-cover-hatch: rgba(3, 169, 244, 0.30);
+  --cv-ring: #0288d1;
+  --cv-dim: #546e7a;
+  --cv-sensor: #263238;
+  --cv-halo: #fdfdfc;
+  --cv-fit: #8a8a8a;
+
+  --z-sofa: #00897b;
+  --z-sofa-ink: #00695c;
+  --z-desk: #c77f00;
+  --z-desk-ink: #8a5a00;
+  --z-entry: #8e24aa;
+  --z-entry-ink: #7b1fa2;
+  --t-1: #e53935;
+  --t-2: #3949ab;
+  --t-neutral: #546e7a;
+  --t-halo: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary-text-color: #e1e1e1;
+    --secondary-text-color: #9b9b9b;
+    --disabled-text-color: #6f6f6f;
+    --divider-color: rgba(225, 225, 225, 0.12);
+    --card-background-color: #1c1c1c;
+    --secondary-background-color: #282828;
+    --primary-background-color: #111111;
+    --app-header-background-color: #101e24;
+    --app-header-text-color: #e1e1e1;
+    --epp-accent-ink: #4fc3f7;
+    --epp-accent-tint: rgba(3, 169, 244, 0.2);
+    --epp-success-ink: #81c784;
+    --epp-warning-ink: #ffb74d;
+    --epp-warning-tint: rgba(255, 152, 0, 0.18);
+    --epp-danger-ink: #ef9a9a;
+    --epp-scrim: rgba(0, 0, 0, 0.6);
+    --cv-bg: #161a1c;
+    --cv-grid-minor: rgba(225, 225, 225, 0.05);
+    --cv-grid-major: rgba(225, 225, 225, 0.12);
+    --cv-axis: #9aa4a8;
+    --cv-wall: #cfd8dc;
+    --cv-room: #202528;
+    --cv-cover: rgba(79, 195, 247, 0.10);
+    --cv-cover-hatch: rgba(79, 195, 247, 0.30);
+    --cv-ring: #4fc3f7;
+    --cv-dim: #90a4ae;
+    --cv-sensor: #eceff1;
+    --cv-halo: #161a1c;
+    --cv-fit: #9e9e9e;
+    --z-sofa: #4db6ac;
+    --z-sofa-ink: #4db6ac;
+    --z-desk: #ffca28;
+    --z-desk-ink: #ffca28;
+    --z-entry: #ce93d8;
+    --z-entry-ink: #ce93d8;
+    --t-1: #ff7070;
+    --t-2: #8c9eff;
+    --t-neutral: #90a4ae;
+    --t-halo: #161a1c;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--epp-bg);
+  color: var(--epp-text);
+  font-family: var(--epp-font-family);
+  font-size: var(--epp-font-base);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+button, input, select { font: inherit; color: inherit; }
+button { white-space: nowrap; }
+:focus-visible { outline: var(--epp-focus-ring); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--epp-text-muted); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+p { margin: 0; }
+h2 { font-size: var(--epp-font-xl); font-weight: var(--epp-weight-medium); margin: 0; }
+h3 { font-size: var(--epp-font-lg); font-weight: var(--epp-weight-medium); margin: 0; }
+
+.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.i-sm { width: 16px; height: 16px; }
+.i-lg { width: 24px; height: 24px; }
+.spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* header */
+.hdr { position: sticky; top: 0; z-index: 20; background: var(--app-header-background-color); color: var(--app-header-text-color); box-shadow: var(--epp-elevation-1); }
+.bar { height: var(--epp-header-h); display: flex; align-items: center; gap: var(--epp-space-2); padding: 0 var(--epp-space-2); }
+.bar h1 { font-size: var(--epp-font-2xl); font-weight: var(--epp-weight-regular); margin: 0 0 0 var(--epp-space-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.iconbtn { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: var(--epp-radius-pill); background: transparent; cursor: pointer; flex: none; }
+.iconbtn:hover { background: var(--epp-surface-2); }
+.hdr .iconbtn:hover { background: rgba(255, 255, 255, 0.14); }
+.spacer { flex: 1; }
+.lock { display: inline-flex; border: 1px solid rgba(255, 255, 255, 0.45); border-radius: var(--epp-radius-pill); overflow: hidden; flex: none; margin-right: var(--epp-space-2); }
+.lock button { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 var(--epp-space-3); border: 0; background: transparent; cursor: pointer; font-weight: var(--epp-weight-medium); }
+.lock button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.24); }
+
+main { padding: var(--epp-space-5); max-width: 1440px; margin: 0 auto; }
+
+/* primitives */
+.btn { min-height: var(--epp-control-height); display: inline-flex; align-items: center; justify-content: center; gap: var(--epp-space-2); padding: 0 var(--epp-space-4); border-radius: var(--epp-radius-sm); border: 1px solid var(--epp-border); background: var(--epp-surface); color: var(--epp-text); font-weight: var(--epp-weight-medium); cursor: pointer; }
+.btn:hover { background: var(--epp-surface-2); }
+.btn.primary { background: var(--epp-accent); border-color: var(--epp-accent); color: var(--epp-accent-text); }
+.btn.primary:hover { filter: brightness(0.95); }
+.btn.primary[disabled] { background: var(--epp-surface-2); border-color: var(--epp-border); color: var(--epp-text-muted); cursor: default; filter: none; }
+.btn.text { border-color: transparent; background: transparent; color: var(--epp-accent-ink); padding: 0 var(--epp-space-2); }
+.btn.text:hover { background: var(--epp-accent-tint); }
+.btn.danger { color: var(--epp-danger-ink); }
+.btn.danger-fill { background: var(--epp-danger); border-color: var(--epp-danger); color: #fff; }
+.btn.sm { min-height: var(--epp-control-height-sm); padding: 0 var(--epp-space-3); font-size: var(--epp-font-sm); }
+.seg { display: inline-flex; border: 1px solid var(--epp-border); border-radius: var(--epp-radius-sm); overflow: hidden; background: var(--epp-surface); max-width: 100%; }
+.seg button { min-height: var(--epp-control-height-sm); padding: 0 var(--epp-space-3); border: 0; border-left: 1px solid var(--epp-border); background: transparent; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: var(--epp-space-1); }
+.seg button:first-child { border-left: 0; }
+.seg button[aria-pressed="true"] { background: var(--epp-accent-tint); font-weight: var(--epp-weight-medium); }
+.seg .ck { display: none; color: var(--epp-accent-ink); }
+.seg button[aria-pressed="true"] .ck { display: block; }
+.card { background: var(--epp-surface); border: 1px solid var(--epp-border); border-radius: var(--epp-radius-lg); }
+.chip { display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 2px var(--epp-space-2) 2px 6px; border-radius: var(--epp-radius-pill); background: var(--epp-surface-2); font-size: var(--epp-font-sm); white-space: nowrap; }
+.chip b { font-weight: var(--epp-weight-semibold); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--epp-success); flex: none; }
+.dot.off { background: transparent; box-shadow: inset 0 0 0 1.5px var(--epp-text-muted); }
+.state { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 var(--epp-space-3); border-radius: var(--epp-radius-pill); font-weight: var(--epp-weight-medium); font-size: var(--epp-font-sm); white-space: nowrap; }
+.state.on { background: var(--epp-accent); color: var(--epp-accent-text); }
+.state.clear { background: var(--epp-surface-2); color: var(--epp-text-muted); }
+.state.warn { background: var(--epp-warning-tint); color: var(--epp-text); }
+.state.warn .i { color: var(--epp-warning-ink); }
+.badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px var(--epp-space-2); border-radius: var(--epp-radius-pill); border: 1px solid var(--epp-border); font-size: var(--epp-font-xs); white-space: nowrap; color: var(--epp-text-muted); }
+.badge.model { border: 0; background: var(--cv-sensor); color: var(--epp-surface); font-weight: var(--epp-weight-semibold); }
+.badge.dev { color: var(--epp-text); }
+.sync { display: inline-flex; align-items: center; gap: 4px; font-size: var(--epp-font-xs); font-weight: var(--epp-weight-medium); white-space: nowrap; }
+.sync.ok { color: var(--epp-success-ink); }
+.sync.busy { color: var(--epp-accent-ink); }
+.sync.bad { color: var(--epp-warning-ink); }
+.sync .i { width: 14px; height: 14px; }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: var(--epp-font-sm); font-weight: var(--epp-weight-medium); white-space: nowrap; }
+.status.ok { color: var(--epp-success-ink); }
+.status.busy { color: var(--epp-accent-ink); }
+.status.bad { color: var(--epp-warning-ink); }
+.note { display: flex; gap: var(--epp-space-2); align-items: flex-start; color: var(--epp-text-muted); font-size: var(--epp-font-sm); }
+.note .i { margin-top: 1px; }
+.note.warn { color: var(--epp-text); background: var(--epp-warning-tint); padding: var(--epp-space-3); border-radius: var(--epp-radius-md); }
+.note.warn .i { color: var(--epp-warning-ink); }
+input[type="range"] { width: 100%; accent-color: var(--epp-accent); height: var(--epp-control-height-sm); margin: 0; }
+.field { display: inline-flex; align-items: center; height: var(--epp-control-height); border: 1px solid var(--epp-border); border-radius: var(--epp-radius-sm); background: var(--epp-surface); padding: 0 var(--epp-space-3); gap: var(--epp-space-1); min-width: 0; }
+.field input { border: 0; background: transparent; width: 48px; text-align: right; font-variant-numeric: tabular-nums; min-width: 0; }
+.field input.txt { width: 100%; text-align: left; }
+.field input:focus, .field select:focus { outline: none; }
+.field:focus-within { outline: var(--epp-focus-ring); }
+.field select { border: 0; background: transparent; width: 100%; min-width: 0; height: 100%; cursor: pointer; }
+.field.wide { width: 100%; }
+.toggle { width: 44px; height: 26px; border-radius: var(--epp-radius-pill); background: var(--epp-text-disabled); border: 0; position: relative; cursor: pointer; flex: none; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform 0.15s; }
+.toggle[aria-checked="true"] { background: var(--epp-accent); }
+.toggle[aria-checked="true"]::after { transform: translateX(18px); }
+.row { display: flex; justify-content: space-between; align-items: center; gap: var(--epp-space-3); min-height: var(--epp-control-height); }
+.row > label, .row > .lab { font-size: var(--epp-font-sm); color: var(--epp-text-muted); }
+.stack { display: flex; flex-direction: column; gap: var(--epp-space-3); }
+.actions { display: flex; gap: var(--epp-space-2); flex-wrap: wrap; }
+.actions .btn { flex: 1 1 auto; }
+
+/* rooms list */
+.rooms-head { display: flex; align-items: center; gap: var(--epp-space-3); margin-bottom: var(--epp-space-5); flex-wrap: wrap; }
+.area { margin-top: var(--epp-space-5); }
+.area > h2 { font-size: var(--epp-font-md); color: var(--epp-text-muted); margin: 0 0 var(--epp-space-3); display: flex; align-items: center; gap: var(--epp-space-2); }
+.grid-rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--epp-space-4); }
+.room { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--epp-space-4); padding: var(--epp-space-4); text-align: left; cursor: pointer; width: 100%; white-space: normal; }
+.room:hover { box-shadow: var(--epp-elevation-1); }
+.room .thumb { width: 96px; height: 96px; border-radius: var(--epp-radius-md); background: var(--cv-bg); border: 1px solid var(--epp-border); display: grid; place-items: center; }
+.room .thumb svg { width: 84px; height: 84px; }
+.room .top { display: flex; justify-content: space-between; gap: var(--epp-space-2); align-items: flex-start; flex-wrap: wrap; }
+.room .meta { display: block; color: var(--epp-text-muted); font-size: var(--epp-font-sm); margin: 2px 0 var(--epp-space-3); }
+.room .chips { display: flex; gap: var(--epp-space-2); flex-wrap: wrap; }
+.room.offline .thumb svg { opacity: 0.45; filter: grayscale(1); }
+.unassigned { display: flex; align-items: center; gap: var(--epp-space-3); padding: var(--epp-space-3) var(--epp-space-4); flex-wrap: wrap; margin-top: var(--epp-space-5); }
+.empty { text-align: center; padding: var(--epp-space-6) var(--epp-space-4); display: flex; flex-direction: column; align-items: center; gap: var(--epp-space-3); max-width: 520px; margin: var(--epp-space-6) auto 0; }
+.empty svg.ill { width: 160px; height: 120px; }
+.waiting { list-style: none; margin: 0; padding: 0; width: 100%; text-align: left; }
+.waiting li { display: flex; align-items: center; gap: var(--epp-space-2); min-height: 44px; border-top: 1px solid var(--epp-border); font-size: var(--epp-font-sm); }
+
+/* room screen */
+.rb { display: grid; grid-template-columns: minmax(0, 1fr) var(--epp-insp-w); gap: var(--epp-space-4); align-items: start; }
+.toolbar { display: flex; align-items: center; gap: var(--epp-space-2); margin-bottom: var(--epp-space-3); flex-wrap: wrap; }
+.tools button { gap: var(--epp-space-2); min-height: var(--epp-control-height); }
+.tools .short { display: none; }
+.tb-icon { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--epp-border); border-radius: var(--epp-radius-sm); background: var(--epp-surface); cursor: pointer; }
+.tb-icon[disabled] { color: var(--epp-text-disabled); cursor: default; }
+.tb-icon[aria-pressed="true"] { background: var(--epp-accent-tint); border-color: var(--epp-accent); }
+.saved { display: inline-flex; align-items: center; gap: 6px; font-size: var(--epp-font-sm); color: var(--epp-text-muted); margin-left: auto; white-space: nowrap; }
+.saved .i { color: var(--epp-success-ink); }
+.snap { display: inline-flex; align-items: center; gap: var(--epp-space-2); font-size: var(--epp-font-sm); white-space: nowrap; }
+.covbtn { display: none; }
+.canvas { background: var(--cv-bg); border: 1px solid var(--epp-border); border-radius: var(--epp-radius-lg); overflow: hidden; position: relative; }
+.cv-main { display: block; width: 100%; height: auto; }
+.cvfoot { display: flex; gap: var(--epp-space-4); flex-wrap: wrap; align-items: center; padding: var(--epp-space-2) var(--epp-space-3); border-top: 1px solid var(--epp-border); font-size: var(--epp-font-sm); color: var(--epp-text-muted); background: var(--epp-surface); }
+.legend { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 14px; height: 14px; border-radius: 4px; flex: none; display: inline-block; }
+.sw.hatch-sw { background: repeating-linear-gradient(45deg, var(--cv-cover-hatch) 0 2px, transparent 2px 6px), var(--cv-cover); border: 1px solid var(--cv-ring); }
+.sw.tgt-sw { border-radius: 50%; background: var(--t-neutral); box-shadow: 0 0 0 2px var(--epp-surface), 0 0 0 3px var(--t-neutral); width: 10px; height: 10px; margin: 0 2px; }
+.sw.line { height: 0; border-radius: 0; width: 22px; border-top: 3px solid; }
+@media (pointer: coarse) { .cursor-readout { display: none; } }
+
+/* strip */
+.strip { display: flex; align-items: center; gap: var(--epp-space-3) var(--epp-space-4); padding: var(--epp-space-3) var(--epp-space-4); border-bottom: 1px solid var(--epp-border); background: var(--epp-surface); flex-wrap: wrap; }
+.strip.warn { background: linear-gradient(var(--epp-warning-tint), var(--epp-warning-tint)), var(--epp-surface); }
+.steps { display: flex; gap: 2px; flex: none; }
+.sp { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 var(--epp-space-2); border-radius: var(--epp-radius-pill); font-size: var(--epp-font-sm); color: var(--epp-text-muted); white-space: nowrap; }
+.sp .n { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid currentColor; display: grid; place-items: center; font-size: 11px; font-weight: var(--epp-weight-semibold); }
+.sp .i { display: none; color: var(--epp-success-ink); }
+.sp.cur { background: var(--epp-accent-tint); color: var(--epp-text); font-weight: var(--epp-weight-medium); }
+[data-cal="mark"] .sp-place, [data-cal="review"] .sp-place, [data-cal="review"] .sp-mark { color: var(--epp-text); }
+[data-cal="mark"] .sp-place .i, [data-cal="review"] .sp-place .i, [data-cal="review"] .sp-mark .i { display: block; }
+[data-cal="mark"] .sp-place .n, [data-cal="review"] .sp-place .n, [data-cal="review"] .sp-mark .n { display: none; }
+[data-cal="place"] .sp-place, [data-cal="mark"] .sp-mark, [data-cal="review"] .sp-review { background: var(--epp-accent-tint); color: var(--epp-text); font-weight: var(--epp-weight-medium); }
+.smsg { display: flex; align-items: center; gap: var(--epp-space-3); flex: 1 1 260px; min-width: 0; }
+.smsg b { display: block; font-size: var(--epp-font-md); }
+.smsg .sub { font-size: var(--epp-font-sm); color: var(--epp-text-muted); }
+.smsg > .i { color: var(--epp-warning-ink); width: 28px; height: 28px; }
+.cd { width: 44px; height: 44px; flex: none; position: relative; }
+.cd svg { width: 44px; height: 44px; transform: rotate(-90deg); }
+.cd .bg { fill: none; stroke: var(--epp-surface-2); stroke-width: 5; }
+.cd .fg { fill: none; stroke: var(--epp-accent); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 113.1; }
+.cd span { position: absolute; inset: 0; display: grid; place-items: center; font-size: var(--epp-font-sm); font-weight: var(--epp-weight-semibold); font-variant-numeric: tabular-nums; }
+.spread { display: flex; flex-direction: column; align-items: flex-end; flex: none; }
+.spread small { font-size: var(--epp-font-xs); color: var(--epp-text-muted); }
+.spread b { font-size: var(--epp-font-2xl); font-weight: var(--epp-weight-medium); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.spread b.bad { color: var(--epp-warning-ink); }
+.sact { display: flex; align-items: center; gap: var(--epp-space-2); flex: none; }
+
+/* canvas svg */
+.cv text { font-family: var(--epp-font-family); fill: var(--epp-text); }
+.cv .halo { paint-order: stroke; stroke: var(--cv-halo); stroke-width: 6px; stroke-linejoin: round; }
+.cv .ax { font-size: 20px; fill: var(--cv-axis); font-variant-numeric: tabular-nums; }
+.cv .dimt { font-size: 22px; fill: var(--cv-dim); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cv .zl { font-size: 22px; font-weight: 600; }
+.cv .ringl { font-size: 18px; fill: var(--epp-accent-ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cv .small { font-size: 18px; fill: var(--epp-text-muted); }
+.cv .rl { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cv .ptl { font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.g-minor { stroke: var(--cv-grid-minor); stroke-width: 1; }
+.g-major { stroke: var(--cv-grid-major); stroke-width: 1.6; }
+.hatch { stroke: var(--cv-cover-hatch); stroke-width: 2; }
+.roomfill { fill: var(--cv-room); }
+.wedge { fill: var(--cv-cover); stroke: var(--cv-ring); stroke-width: 2; stroke-opacity: 0.7; }
+.wedge-h { fill: url(#hatch); }
+.ring { fill: none; stroke: var(--cv-ring); stroke-width: 1.5; stroke-dasharray: 6 8; opacity: 0.6; }
+.r-ghost { fill: none; stroke: var(--cv-ring); stroke-width: 2; stroke-dasharray: 10 10; opacity: 0.8; }
+.wall { fill: none; stroke: var(--cv-wall); stroke-width: 6; stroke-linecap: square; stroke-linejoin: miter; }
+.door { fill: none; stroke: var(--cv-wall); stroke-width: 2; stroke-dasharray: 5 5; }
+.dim { stroke: var(--cv-dim); stroke-width: 1.5; fill: none; }
+.vh { fill: var(--epp-surface); stroke: var(--cv-ring); stroke-width: 4; }
+.hit { fill: transparent; stroke: none; cursor: grab; }
+.zh { fill: var(--epp-surface); stroke-width: 3; }
+.zone { stroke-width: 3; fill-opacity: 0.2; }
+.hot { cursor: pointer; }
+.z-sofa { fill: var(--z-sofa); stroke: var(--z-sofa); }
+.z-desk { fill: var(--z-desk); stroke: var(--z-desk); }
+.z-entry { fill: var(--z-entry); stroke: var(--z-entry); }
+.cv text.zl.z-sofa { fill: var(--z-sofa-ink); stroke: var(--cv-halo); }
+.cv text.zl.z-desk { fill: var(--z-desk-ink); stroke: var(--cv-halo); }
+.cv text.zl.z-entry { fill: var(--z-entry-ink); stroke: var(--cv-halo); }
+.zone.sel { stroke-width: 4; fill-opacity: 0.3; }
+[data-sel="one"] .zones, [data-cal="mark"] .zones, [data-cal="review"] .zones, [data-cal="place"] .zones { opacity: 0.3; }
+[data-mode="view"] .zone { fill-opacity: 0.12; }
+[data-mode="view"] .zone.occ { fill-opacity: 0.38; stroke-width: 5; }
+.trail { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; opacity: 0.45; }
+.tgt { stroke: var(--t-halo); stroke-width: 4; }
+.sens { fill: var(--cv-sensor); }
+.lens { fill: var(--epp-accent); }
+.selring { fill: none; stroke: var(--epp-accent); stroke-width: 3; }
+.offmark { fill: var(--epp-warning); stroke: var(--t-halo); stroke-width: 3; }
+[data-mode="view"] .cov { display: none; }
+[data-mode="view"] .hot { pointer-events: none; }
+[data-mode="view"][data-stale="yes"] .cv-main { filter: grayscale(1); opacity: 0.5; }
+/* one tuner rings */
+.r-min { fill: none; stroke: var(--epp-text-muted); stroke-width: 3; stroke-dasharray: 6 6; }
+.r-trig { fill: none; stroke: var(--cv-ring); stroke-width: 4; }
+.r-max { fill: none; stroke: var(--cv-wall); stroke-width: 3; }
+.r-dev { fill: none; stroke: var(--epp-text-muted); stroke-width: 3; stroke-dasharray: 1 8; stroke-linecap: round; }
+.r-wall { fill: none; stroke: var(--cv-dim); stroke-width: 2; stroke-dasharray: 14 8; }
+.r-live { fill: none; stroke: var(--t-1); stroke-width: 9; stroke-linecap: round; opacity: 0.9; }
+/* calibration marks */
+.pt { fill: var(--epp-accent); stroke: var(--t-halo); stroke-width: 3; }
+.pt.pend { fill: var(--cv-room); stroke: var(--epp-text-muted); stroke-dasharray: 4 4; stroke-width: 2.5; }
+.pt.live { fill: var(--cv-room); stroke: var(--epp-accent); stroke-width: 4; }
+.pt.bad { fill: var(--cv-room); stroke: var(--epp-warning); stroke-width: 4; }
+.ptn { font-size: 15px; font-weight: 700; fill: #fff !important; }
+.ptn.pend { fill: var(--epp-text-muted) !important; }
+.ptn.live { fill: var(--epp-accent-ink) !important; }
+.ptn.bad { fill: var(--epp-warning-ink) !important; }
+.fitpt { fill: var(--cv-fit); stroke: var(--t-halo); stroke-width: 2; }
+.resid { stroke: var(--cv-fit); stroke-width: 2.5; stroke-dasharray: 3 3; }
+.worst { fill: none; stroke: var(--epp-warning); stroke-width: 3; }
+.pulse { animation: pulse 1.6s ease-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes pulse { 0% { opacity: 0.9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(1.6); } }
+
+/* inspector */
+.insp { position: sticky; top: calc(var(--epp-header-h) + var(--epp-space-4)); max-height: calc(100vh - var(--epp-header-h) - var(--epp-space-6)); overflow: auto; }
+.insp .handle { display: none; }
+.panel { padding: var(--epp-space-4); display: flex; flex-direction: column; gap: var(--epp-space-4); }
+.ph { display: flex; align-items: center; gap: var(--epp-space-2); min-height: 44px; }
+.ph h3 { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec { border-top: 1px solid var(--epp-border); padding-top: var(--epp-space-4); display: flex; flex-direction: column; gap: var(--epp-space-2); }
+.sec-h { display: flex; justify-content: space-between; align-items: center; gap: var(--epp-space-2); min-height: 32px; }
+.sec-h .muted { font-size: var(--epp-font-sm); }
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.lrow { width: 100%; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: var(--epp-space-3); min-height: 56px; padding: var(--epp-space-2); border: 0; border-radius: var(--epp-radius-md); background: transparent; text-align: left; cursor: pointer; white-space: normal; }
+.lrow:hover { background: var(--epp-surface-2); }
+.lrow .ck { visibility: hidden; color: var(--epp-accent-ink); }
+.lrow[aria-pressed="true"] { background: var(--epp-accent-tint); }
+.lrow[aria-pressed="true"] .ck { visibility: visible; }
+.lrow .t1 { display: flex; align-items: center; gap: var(--epp-space-2); font-weight: var(--epp-weight-medium); min-width: 0; }
+.lrow .t1 .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .t2 { font-size: var(--epp-font-xs); color: var(--epp-text-muted); display: flex; gap: var(--epp-space-2); flex-wrap: wrap; align-items: center; margin-top: 2px; }
+.lrow .end { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.srow2 { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--epp-space-2) var(--epp-space-3); min-height: 56px; padding: var(--epp-space-2); border-radius: var(--epp-radius-md); }
+.srow2 .who { display: flex; align-items: center; gap: var(--epp-space-2); border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; min-height: 44px; white-space: normal; }
+.srow2 .who small { display: block; color: var(--epp-text-muted); font-size: var(--epp-font-xs); }
+.srow2:hover { background: var(--epp-surface-2); }
+.menuwrap { position: relative; }
+.menu { position: absolute; right: 0; top: 44px; z-index: 5; min-width: 200px; padding: var(--epp-space-1); background: var(--epp-surface); border: 1px solid var(--epp-border); border-radius: var(--epp-radius-md); box-shadow: var(--epp-elevation-2); }
+.menu button { width: 100%; display: flex; align-items: center; gap: var(--epp-space-2); min-height: 44px; padding: 0 var(--epp-space-3); border: 0; background: transparent; border-radius: var(--epp-radius-sm); cursor: pointer; }
+.menu button:hover { background: var(--epp-surface-2); }
+.swatches { display: flex; gap: var(--epp-space-2); flex-wrap: wrap; }
+.swatches button { width: 32px; height: 32px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; padding: 0; display: grid; place-items: center; color: #fff; }
+.swatches button[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--epp-surface), 0 0 0 4px var(--epp-text); }
+.swatches .i { display: none; }
+.swatches button[aria-pressed="true"] .i { display: block; }
+.slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--epp-border); border-radius: var(--epp-radius-sm); overflow: hidden; }
+.slots button { min-height: 52px; border: 0; border-left: 1px solid var(--epp-border); background: transparent; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 2px; }
+.slots button:first-child { border-left: 0; }
+.slots button.ha { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--epp-border); min-height: 44px; flex-direction: row; gap: var(--epp-space-1); }
+.slots button small { display: inline-flex; align-items: center; gap: 2px; font-size: 11px; color: var(--epp-text-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.slots button small .i { width: 12px; height: 12px; }
+.slots button[aria-pressed="true"] { background: var(--epp-accent-tint); font-weight: var(--epp-weight-medium); }
+.set-row { display: flex; flex-direction: column; gap: var(--epp-space-2); padding: var(--epp-space-3) 0; border-top: 1px solid var(--epp-border); }
+.set-row:first-of-type { border-top: 0; padding-top: 0; }
+.set-row .top { display: flex; justify-content: space-between; align-items: center; gap: var(--epp-space-2); flex-wrap: wrap; }
+.set-row .lab { font-weight: var(--epp-weight-medium); }
+.set-row .help { font-size: var(--epp-font-sm); color: var(--epp-text-muted); }
+.set-row .seg { align-self: flex-start; }
+.set-row .ctl { display: flex; align-items: center; gap: var(--epp-space-3); flex-wrap: wrap; }
+details.adv { border-top: 1px solid var(--epp-border); padding-top: var(--epp-space-2); }
+details.adv summary { min-height: 44px; display: flex; align-items: center; gap: var(--epp-space-2); cursor: pointer; font-weight: var(--epp-weight-medium); list-style: none; }
+details.adv summary::-webkit-details-marker { display: none; }
+details.adv summary .i { transition: transform 0.15s; }
+details.adv[open] summary .i { transform: rotate(90deg); }
+.sl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px var(--epp-space-3); align-items: center; }
+.sl-row label { font-weight: var(--epp-weight-medium); }
+.sl-row output { font-variant-numeric: tabular-nums; font-weight: var(--epp-weight-medium); }
+.sl-row input { grid-column: 1 / -1; }
+.sl-row .help { grid-column: 1 / -1; font-size: var(--epp-font-sm); color: var(--epp-text-muted); }
+.sl-row .use { grid-column: 1 / -1; justify-self: start; }
+.sl-row .was { grid-column: 1 / -1; font-size: var(--epp-font-sm); color: var(--epp-warning-ink); }
+.big { font-size: var(--epp-font-display); font-weight: var(--epp-weight-regular); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.liveread { display: flex; align-items: center; gap: var(--epp-space-3); flex-wrap: wrap; }
+.presence-xl { display: flex; align-items: center; gap: var(--epp-space-3); padding: var(--epp-space-4); border-radius: var(--epp-radius-md); background: var(--epp-accent); color: var(--epp-accent-text); }
+.presence-xl .big { font-weight: var(--epp-weight-medium); }
+.applybar { display: flex; flex-direction: column; gap: var(--epp-space-2); border-top: 1px solid var(--epp-border); padding-top: var(--epp-space-4); }
+.plist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: var(--epp-font-sm); }
+.plist li { display: flex; gap: var(--epp-space-2); align-items: center; min-height: 44px; border-top: 1px solid var(--epp-border); }
+.plist li:first-child { border-top: 0; }
+.plist .pn { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--epp-border); display: grid; place-items: center; font-size: var(--epp-font-xs); font-weight: 600; flex: none; }
+.plist .pn.ok { background: var(--epp-accent); border-color: var(--epp-accent); color: var(--epp-accent-text); }
+.plist .pn.live { border-color: var(--epp-accent); color: var(--epp-accent-ink); }
+.plist .pn.bad { border-color: var(--epp-warning); color: var(--epp-warning-ink); }
+.plist .v { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--epp-text-muted); text-align: right; }
+.resbars { display: flex; flex-direction: column; gap: var(--epp-space-2); }
+.rb-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px; align-items: center; gap: var(--epp-space-2); font-size: var(--epp-font-sm); }
+.rb-row .v { text-align: right; font-variant-numeric: tabular-nums; }
+.rb-row .v.bad { color: var(--epp-warning-ink); font-weight: var(--epp-weight-semibold); }
+.track { position: relative; height: 10px; border-radius: 5px; background: var(--epp-surface-2); }
+.track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 5px; background: var(--epp-accent); }
+.track i.bad { background: var(--epp-warning); }
+.track::after { content: ""; position: absolute; left: 50%; top: -4px; bottom: -4px; border-left: 2px dashed var(--epp-text-muted); }
+.scale { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px; gap: var(--epp-space-2); font-size: var(--epp-font-xs); color: var(--epp-text-muted); }
+.scale span:nth-child(2) { text-align: center; }
+.worstflag { display: inline-flex; align-items: center; gap: 2px; color: var(--epp-warning-ink); font-weight: var(--epp-weight-semibold); }
+/* view panel */
+.vstate { display: flex; align-items: center; gap: var(--epp-space-4); }
+.vstate .big { font-weight: var(--epp-weight-medium); }
+.vstate .pill { width: 18px; height: 18px; border-radius: 50%; background: var(--epp-accent); box-shadow: 0 0 0 6px var(--epp-accent-tint); flex: none; }
+.vstate .i { width: 32px; height: 32px; color: var(--epp-warning-ink); }
+.ztiles { display: grid; gap: var(--epp-space-2); }
+.ztile { display: grid; grid-template-columns: 6px minmax(0, 1fr) auto; gap: var(--epp-space-3); align-items: center; padding: var(--epp-space-3) var(--epp-space-4) var(--epp-space-3) 0; overflow: hidden; border-radius: var(--epp-radius-md); }
+.ztile .stripe { align-self: stretch; }
+.ztile .zn { font-size: var(--epp-font-lg); font-weight: var(--epp-weight-medium); }
+.ztile .zs { font-size: var(--epp-font-sm); color: var(--epp-text-muted); }
+.ztile .st { font-size: var(--epp-font-lg); font-weight: var(--epp-weight-medium); text-align: right; }
+.ztile .st small { display: block; font-size: var(--epp-font-sm); color: var(--epp-text-muted); font-weight: var(--epp-weight-regular); }
+.ztile.occ { border-color: var(--epp-accent); box-shadow: inset 0 0 0 1px var(--epp-accent); }
+.ztile.occ .st { color: var(--epp-accent-ink); }
+[data-stale="yes"] .ztile { opacity: 0.6; box-shadow: none; border-color: var(--epp-border); }
+[data-stale="yes"] .ztile.occ .st { color: var(--epp-text-muted); }
+.sensline { font-size: var(--epp-font-sm); color: var(--epp-text-muted); display: flex; align-items: center; gap: var(--epp-space-2); flex-wrap: wrap; }
+
+/* overlays */
+.scrim { position: fixed; inset: 0; background: var(--epp-scrim); z-index: 50; }
+.sheet { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100%); z-index: 51; background: var(--epp-surface); display: flex; flex-direction: column; box-shadow: var(--epp-elevation-2); }
+.sheet .sh { display: flex; align-items: center; gap: var(--epp-space-2); padding: var(--epp-space-2) var(--epp-space-2) var(--epp-space-2) var(--epp-space-5); border-bottom: 1px solid var(--epp-border); min-height: 60px; }
+.sheet .sh h2 { flex: 1; }
+.sheet .sb { flex: 1; overflow: auto; padding: var(--epp-space-5); display: flex; flex-direction: column; gap: var(--epp-space-5); }
+.sheet .sf { display: flex; gap: var(--epp-space-2); padding: var(--epp-space-3) var(--epp-space-5); border-top: 1px solid var(--epp-border); justify-content: flex-end; }
+.fld { display: flex; flex-direction: column; gap: 6px; }
+.fld > label, .fld > .lab { font-weight: var(--epp-weight-medium); }
+.fld .help { font-size: var(--epp-font-sm); color: var(--epp-text-muted); }
+.size { display: flex; align-items: center; gap: var(--epp-space-2); }
+.size .field { flex: 1; }
+.size .field input { width: 100%; }
+.pick { list-style: none; margin: 0; padding: 0; border: 1px solid var(--epp-border); border-radius: var(--epp-radius-md); overflow: hidden; }
+.pick li + li { border-top: 1px solid var(--epp-border); }
+.pick label { display: flex; align-items: center; gap: var(--epp-space-3); min-height: 56px; padding: var(--epp-space-2) var(--epp-space-3); cursor: pointer; }
+.pick label:hover { background: var(--epp-surface-2); }
+.pick input { width: 20px; height: 20px; accent-color: var(--epp-accent); margin: 0; flex: none; }
+.pick .grow { flex: 1; min-width: 0; }
+.pick small { display: block; color: var(--epp-text-muted); font-size: var(--epp-font-xs); }
+.pick button { width: 100%; display: flex; align-items: center; gap: var(--epp-space-3); min-height: 56px; padding: var(--epp-space-2) var(--epp-space-3); border: 0; background: transparent; cursor: pointer; color: var(--epp-accent-ink); font-weight: var(--epp-weight-medium); }
+.dialog { position: fixed; z-index: 51; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100% - 32px)); padding: var(--epp-space-5); display: flex; flex-direction: column; gap: var(--epp-space-4); box-shadow: var(--epp-elevation-2); }
+.toast { position: fixed; z-index: 45; left: 50%; bottom: var(--epp-space-5); transform: translateX(-50%); display: flex; align-items: center; gap: var(--epp-space-3); padding: var(--epp-space-2) var(--epp-space-2) var(--epp-space-2) var(--epp-space-4); background: #323232; color: #fff; border-radius: var(--epp-radius-md); box-shadow: var(--epp-elevation-2); max-width: calc(100% - 32px); }
+.toast .btn.text { color: #81d4fa; }
+
+/* mock-state switcher (not part of the design) */
+.mockbar { position: fixed; left: 8px; bottom: 8px; z-index: 60; max-width: min(560px, calc(100% - 16px)); font-size: 12px; background: var(--epp-surface); border: 1px dashed var(--epp-text-muted); border-radius: 8px; box-shadow: var(--epp-elevation-1); }
+.mockbar summary { cursor: pointer; padding: 6px 10px; font-weight: 600; color: var(--epp-text-muted); }
+.mockbar .mb { padding: 0 10px 10px; display: grid; gap: 6px; max-height: 60vh; overflow: auto; }
+.mockbar .mr { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.mockbar .mr > span { width: 64px; color: var(--epp-text-muted); }
+.mockbar button { font-size: 12px; padding: 2px 8px; min-height: 26px; border: 1px solid var(--epp-border); border-radius: 4px; background: var(--epp-surface); cursor: pointer; }
+.mockbar button[aria-pressed="true"] { background: var(--epp-accent-tint); border-color: var(--epp-accent); }
+
+/* phone */
+@media (max-width: 819px) {
+  :root { --epp-control-height: 44px; --epp-control-height-sm: 44px; }
+  main { padding: var(--epp-space-4); }
+  [data-screen="room"] main { padding: 0; }
+  .grid-rooms { grid-template-columns: minmax(0, 1fr); }
+  .room { grid-template-columns: 72px minmax(0, 1fr); gap: var(--epp-space-3); }
+  .room .thumb { width: 72px; height: 72px; }
+  .room .thumb svg { width: 62px; height: 62px; }
+  .rb { display: flex; flex-direction: column; gap: 0; height: calc(100dvh - var(--epp-header-h)); }
+  .cvcol, .canvas { display: contents; }
+  .toolbar { order: 1; margin: 0; padding: var(--epp-space-2); gap: var(--epp-space-1); background: var(--epp-surface); border-bottom: 1px solid var(--epp-border); }
+  .tools { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
+  .tools button { flex-direction: column; gap: 2px; padding: 2px 0; font-size: 11px; min-height: 52px; }
+  .tools .long { display: none; }
+  .tools .short { display: inline; }
+  .tb-icon { width: 44px; height: 44px; }
+  .saved { margin-left: var(--epp-space-1); }
+  .saved .long { display: none; }
+  .snap .long { display: none; }
+  .snap { margin-left: auto; }
+  .covbtn { display: inline-flex; }
+  .cv-main { order: 2; flex: 1 1 0; min-height: 0; width: 100%; background: var(--cv-bg); }
+  .cvfoot { order: 3; padding: var(--epp-space-1) var(--epp-space-3); gap: var(--epp-space-3); }
+  .strip { order: 4; border-top: 1px solid var(--epp-border); padding: var(--epp-space-2) var(--epp-space-3); gap: var(--epp-space-2) var(--epp-space-3); }
+  .strip .steps { width: 100%; }
+  .strip .sp { flex: 1; justify-content: center; }
+  .smsg { flex: 1 1 200px; }
+  .sact { width: 100%; }
+  .sact .btn { flex: 1; }
+  .insp { order: 5; position: relative; top: auto; max-height: 46dvh; border-radius: var(--epp-radius-lg) var(--epp-radius-lg) 0 0; border-bottom: 0; box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.18); flex: none; }
+  .insp .handle { display: block; width: 36px; height: 4px; border-radius: 2px; background: var(--epp-border); margin: var(--epp-space-2) auto 0; }
+  .panel { padding: var(--epp-space-3) var(--epp-space-4) var(--epp-space-5); }
+  .cv .ax { font-size: 28px; }
+  .cv .dimt, .cv .zl { font-size: 30px; }
+  .cv .ringl, .cv .small, .cv .rl, .cv .ptl { font-size: 26px; }
+  .cv .halo { stroke-width: 8px; }
+  .sheet { top: auto; left: 0; width: 100%; max-height: 92dvh; border-radius: var(--epp-radius-lg) var(--epp-radius-lg) 0 0; }
+  .sheet .sb { padding: var(--epp-space-4); }
+  .sheet .sf { padding: var(--epp-space-3) var(--epp-space-4); }
+  .sheet .sf .btn { flex: 1; }
+  .toggle { width: 52px; height: 32px; }
+  .toggle::after { width: 26px; height: 26px; }
+  .toggle[aria-checked="true"]::after { transform: translateX(20px); }
+  .lock button { height: 44px; }
+  .lock .lt { display: none; }
+  .toast { top: calc(var(--epp-header-h) + var(--epp-space-2)); bottom: auto; }
+  .swatches button { width: 44px; height: 44px; }
+  .mockbar { bottom: auto; top: calc(var(--epp-header-h) + 4px); }
+}
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; opacity: 0.5; } .spin { animation: none; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <pattern id="gMinor" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" class="g-minor"/></pattern>
+    <pattern id="gMajor" width="100" height="100" patternUnits="userSpaceOnUse"><path d="M100 0H0V100" fill="none" class="g-major"/></pattern>
+    <pattern id="hatch" width="16" height="16" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><path d="M0 0V16" class="hatch"/></pattern>
+    <mask id="outside" maskUnits="userSpaceOnUse" x="-1000" y="-1000" width="3000" height="3000"><rect x="-1000" y="-1000" width="3000" height="3000" fill="#fff"/><rect x="0" y="0" width="420" height="510" fill="#000"/></mask>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M6 3l13 8-6 1.6L10 19z"/></symbol>
+    <symbol id="i-poly" viewBox="0 0 24 24"><path d="M12 3.5l8 6-3 10.5H7L4 9.5z"/></symbol>
+    <symbol id="i-rect" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></symbol>
+    <symbol id="i-outline" viewBox="0 0 24 24"><path d="M4 4h16v16H4z" stroke-width="3"/><circle cx="4" cy="4" r="1.6" fill="currentColor"/><circle cx="20" cy="20" r="1.6" fill="currentColor"/></symbol>
+    <symbol id="i-door" viewBox="0 0 24 24"><path d="M3 21h18M6 21V4h9v17M12 12v1.5M15 7a10 10 0 0 1 4 8"/></symbol>
+    <symbol id="i-snap" viewBox="0 0 24 24"><path d="M6 4v8a6 6 0 0 0 12 0V4h-4v8a2 2 0 0 1-4 0V4zM6 8h4M14 8h4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5h-19zM12 10v4.5M12 17.2h.01"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><circle cx="12" cy="7" r="3.5"/><path d="M5 21v-1.5a5.5 5.5 0 0 1 5.5-5.5h3a5.5 5.5 0 0 1 5.5 5.5V21"/></symbol>
+    <symbol id="i-area" viewBox="0 0 24 24"><path d="M4 20V8l8-4 8 4v12M9 20v-6h6v6"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="M15 14l5-5-5-5M20 9H9a5 5 0 0 0 0 10h3"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="19" r="1.4" fill="currentColor"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M7 4L3 8l4 4M3 8h14M17 12l4 4-4 4M21 16H7"/></symbol>
+    <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></symbol>
+    <symbol id="i-spin" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 1-9 9" /></symbol>
+    <symbol id="i-offline" viewBox="0 0 24 24"><path d="M3 3l18 18M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 5-2.7M14 10.4A10 10 0 0 1 19 13M2 9.5a15 15 0 0 1 4.5-2.8M11 5.1A15 15 0 0 1 22 9.5M12 20h.01"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+    <symbol id="i-cover" viewBox="0 0 24 24"><path d="M12 4L4 18a12 12 0 0 0 16 0z"/><rect x="8" y="12" width="8" height="6"/></symbol>
+    <symbol id="i-saved" viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/><path d="M9.5 13.5l2 2 3.5-3.5"/></symbol>
+  </defs>
+</svg>
+
+<header class="hdr">
+  <div class="bar">
+    <button class="iconbtn" data-set="screen=rooms sel=none cal=off menu=closed" data-show="screen=room" aria-label="Back to rooms"><svg class="i i-lg"><use href="#i-back"/></svg></button>
+    <h1 data-show="screen=rooms">Presence rooms</h1>
+    <h1 data-show="screen=room">Living room</h1>
+    <span class="spacer"></span>
+    <div class="lock" role="group" aria-label="Room mode" data-show="screen=room">
+      <button aria-pressed="true" data-set="mode=edit"><svg class="i i-sm"><use href="#i-pencil"/></svg><span class="lt">Edit</span><span class="sr">Edit</span></button>
+      <button aria-pressed="false" data-set="mode=view cal=off menu=closed"><svg class="i i-sm"><use href="#i-lock"/></svg><span class="lt">View</span><span class="sr">View</span></button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============ ROOMS LIST ============ -->
+<section data-show="screen=rooms" aria-label="Rooms">
+  <div data-show="rooms=list">
+    <div class="rooms-head">
+      <div>
+        <h2>Rooms</h2>
+        <p class="muted">5 rooms, 6 sensors</p>
+      </div>
+      <span class="spacer"></span>
+      <button class="btn primary" data-set="sheet=newroom"><svg class="i"><use href="#i-plus"/></svg>New room</button>
+    </div>
+
+    <div class="grid-rooms">
+      <button class="card room" data-set="screen=room sel=none mode=edit cal=off">
+        <span class="thumb"><svg viewBox="-20 -40 460 570" aria-hidden="true">
+          <rect x="0" y="0" width="420" height="510" class="roomfill"/>
+          <polygon class="zone z-sofa" points="30,330 250,330 250,400 120,400 120,480 30,480"/>
+          <polygon class="zone z-desk" points="280,130 390,130 390,250 280,250"/>
+          <polygon class="zone z-entry" points="260,430 410,430 410,505 260,505"/>
+          <path class="wall" style="stroke-width:14" d="M380 510H420V0H0V510H290"/>
+          <rect class="sens" x="170" y="-22" width="80" height="34" rx="8"/><rect class="sens" x="60" y="-20" width="60" height="30" rx="8"/>
+          <circle cx="165" cy="370" r="22" fill="var(--t-neutral)"/><circle cx="330" cy="300" r="22" fill="var(--t-neutral)"/>
+        </svg></span>
+        <span>
+          <span class="top"><h3>Living room</h3><span class="state on"><svg class="i i-sm"><use href="#i-person"/></svg>2 people</span></span>
+          <span class="meta">4.20 by 5.10 m, 3 zones</span>
+          <span class="chips"><span class="chip"><span class="dot"></span><b>Pro</b>Front wall</span><span class="chip"><span class="dot"></span><b>One</b>By TV</span></span>
+        </span>
+      </button>
+
+      <button class="card room" data-set="screen=room sel=none mode=edit cal=off">
+        <span class="thumb"><svg viewBox="-20 -40 400 460" aria-hidden="true">
+          <rect x="0" y="0" width="360" height="400" class="roomfill"/>
+          <polygon class="zone z-sofa" points="60,180 300,180 300,390 60,390"/>
+          <polygon class="zone z-entry" points="0,0 90,0 90,90 0,90"/>
+          <path class="wall" style="stroke-width:12" d="M360 0V400H0V90M0 0H360"/>
+          <rect class="sens" x="140" y="-22" width="80" height="34" rx="8"/>
+        </svg></span>
+        <span>
+          <span class="top"><h3>Bedroom</h3><span class="state clear">Clear for 12 min</span></span>
+          <span class="meta">3.60 by 4.00 m, 2 zones</span>
+          <span class="chips"><span class="chip"><span class="dot"></span><b>Lite</b>Above door</span></span>
+        </span>
+      </button>
+    </div>
+
+    <div class="area">
+      <h2><svg class="i i-sm"><use href="#i-area"/></svg>Hallway</h2>
+      <div class="grid-rooms">
+        <button class="card room offline" data-set="screen=room sel=none mode=edit cal=off">
+          <span class="thumb"><svg viewBox="-80 -40 280 640" aria-hidden="true">
+            <rect x="0" y="0" width="120" height="560" class="roomfill"/>
+            <path class="wall" style="stroke-width:12" d="M0 0H120V560H0Z"/>
+            <rect class="sens" x="30" y="-22" width="60" height="30" rx="8"/>
+          </svg></span>
+          <span>
+            <span class="top"><h3>Hallway</h3><span class="state warn"><svg class="i i-sm"><use href="#i-offline"/></svg>Offline</span></span>
+            <span class="meta">1.20 by 5.60 m, presence only</span>
+            <span class="chips"><span class="chip"><span class="dot off"></span><b>One</b>Offline for 2 h</span></span>
+          </span>
+        </button>
+        <button class="card room" data-set="screen=room sel=none mode=edit cal=off">
+          <span class="thumb"><svg viewBox="-40 -40 340 340" aria-hidden="true">
+            <rect x="0" y="0" width="260" height="220" class="roomfill"/>
+            <path class="wall" style="stroke-width:12" d="M0 0H260V220H0Z"/>
+            <rect class="sens" x="100" y="-22" width="60" height="30" rx="8"/>
+          </svg></span>
+          <span>
+            <span class="top"><h3>Landing</h3><span class="state clear">Clear for 3 min</span></span>
+            <span class="meta">2.60 by 2.20 m, presence only</span>
+            <span class="chips"><span class="chip"><span class="dot"></span><b>One</b>Top of stairs</span></span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div class="area">
+      <h2><svg class="i i-sm"><use href="#i-area"/></svg>Study</h2>
+      <div class="grid-rooms">
+        <button class="card room" data-set="screen=room sel=none mode=edit cal=off">
+          <span class="thumb"><svg viewBox="-20 -40 360 380" aria-hidden="true">
+            <rect x="0" y="0" width="320" height="300" class="roomfill"/>
+            <polygon class="zone z-desk" points="180,40 300,40 300,160 180,160"/>
+            <path class="wall" style="stroke-width:12" d="M0 0H320V300H0Z"/>
+            <rect class="sens" x="-6" y="110" width="30" height="80" rx="8"/>
+            <circle cx="240" cy="110" r="20" fill="var(--t-neutral)"/>
+          </svg></span>
+          <span>
+            <span class="top"><h3>Office</h3><span class="state on"><svg class="i i-sm"><use href="#i-person"/></svg>1 person</span></span>
+            <span class="meta">3.20 by 3.00 m, 1 zone</span>
+            <span class="chips"><span class="chip"><span class="dot"></span><b>Lite</b>Left wall</span></span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card unassigned">
+      <svg class="i"><use href="#i-info"/></svg>
+      <span style="flex:1;min-width:200px"><b>1 sensor is not in a room.</b> <span class="muted">Lite, area Kitchen, online.</span></span>
+      <button class="btn" data-set="sheet=assign">Add to a room</button>
+    </div>
+  </div>
+
+  <div data-show="rooms=empty">
+    <div class="card empty">
+      <svg class="ill" viewBox="0 0 160 120" aria-hidden="true">
+        <path d="M80 18L18 70A80 80 0 0 0 142 70Z" fill="var(--cv-cover)" stroke="var(--cv-ring)" stroke-width="1.5"/>
+        <rect x="30" y="18" width="100" height="90" fill="none" stroke="var(--cv-wall)" stroke-width="4" stroke-dasharray="8 6"/>
+        <rect x="68" y="12" width="24" height="10" rx="3" fill="var(--cv-sensor)"/>
+      </svg>
+      <h2>No rooms yet</h2>
+      <p class="muted">A room holds your sensors and the zones you draw. Start with its size; you can reshape the walls later.</p>
+      <button class="btn primary" data-set="sheet=newroom"><svg class="i"><use href="#i-plus"/></svg>New room</button>
+      <ul class="waiting" aria-label="Sensors not in a room">
+        <li><span class="dot"></span><b>Pro</b><span class="muted">Area Living room</span></li>
+        <li><span class="dot"></span><b>One</b><span class="muted">Area Living room</span></li>
+        <li><span class="dot"></span><b>Lite</b><span class="muted">Area Kitchen</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ROOM ============ -->
+<section data-show="screen=room" aria-label="Living room">
+  <div class="rb">
+    <div class="cvcol">
+      <div class="toolbar" data-show="mode=edit;cal=off">
+        <div class="seg tools" role="group" aria-label="Drawing tool">
+          <button aria-pressed="true" data-set="tool=select"><svg class="i"><use href="#i-cursor"/></svg>Select</button>
+          <button aria-pressed="false" data-set="tool=poly" aria-label="Zone polygon"><svg class="i"><use href="#i-poly"/></svg><span class="long">Zone polygon</span><span class="short">Polygon</span></button>
+          <button aria-pressed="false" data-set="tool=rect" aria-label="Zone rectangle"><svg class="i"><use href="#i-rect"/></svg><span class="long">Zone rectangle</span><span class="short">Rectangle</span></button>
+          <button aria-pressed="false" data-set="tool=outline"><svg class="i"><use href="#i-outline"/></svg>Outline</button>
+          <button aria-pressed="false" data-set="tool=door"><svg class="i"><use href="#i-door"/></svg>Door</button>
+        </div>
+        <button class="tb-icon" aria-label="Undo" title="Undo"><svg class="i"><use href="#i-undo"/></svg></button>
+        <button class="tb-icon" aria-label="Redo" title="Redo" disabled><svg class="i"><use href="#i-redo"/></svg></button>
+        <span class="saved"><svg class="i i-sm"><use href="#i-saved"/></svg><span class="long">All changes saved</span><span class="sr">All changes saved</span></span>
+        <button class="btn sm covbtn" aria-pressed="false" data-toggle="cover"><svg class="i i-sm"><use href="#i-cover"/></svg>Show coverage</button>
+        <label class="snap"><svg class="i i-sm"><use href="#i-snap"/></svg><span class="long">Snap 10 cm, 90°</span>
+          <button class="toggle" role="switch" aria-checked="true" aria-label="Snap to 10 cm and 90 degrees" data-toggle="snap"></button></label>
+      </div>
+
+      <div class="canvas">
+        <!-- calibration status strip -->
+        <div class="strip" data-show="mode=edit;cal!=off" role="status" aria-live="polite">
+          <div class="steps" aria-label="Calibration steps">
+            <span class="sp sp-place"><span class="n">1</span><svg class="i i-sm"><use href="#i-check"/></svg>Place sensor</span>
+            <span class="sp sp-mark"><span class="n">2</span><svg class="i i-sm"><use href="#i-check"/></svg>Mark points</span>
+            <span class="sp sp-review"><span class="n">3</span><svg class="i i-sm"><use href="#i-check"/></svg>Review</span>
+          </div>
+
+          <!-- place -->
+          <div class="smsg" data-show="cal=place"><div><b>Drag the Pro to where it hangs</b><span class="sub">Or type its distance from the left corner.</span></div></div>
+          <div class="sact" data-show="cal=place"><button class="btn primary" data-set="cal=mark cap=capturing">Next: mark points</button></div>
+
+          <!-- mark: capturing -->
+          <div class="smsg" data-show="cal=mark;cap=capturing">
+            <span class="cd"><svg viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="18"/><circle class="fg" cx="22" cy="22" r="18" style="stroke-dashoffset:37.7"/></svg><span>1 s</span></span>
+            <div><b>Hold still at point 2</b><span class="sub">1 person, steady. Stand one step out from the corner.</span></div>
+          </div>
+          <div class="spread" data-show="cal=mark;cap=capturing"><small>Spread</small><b>38 mm</b></div>
+          <!-- mark: none -->
+          <div class="smsg" data-show="cal=mark;cap=none">
+            <span class="cd"><svg viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="18"/></svg><span>3 s</span></span>
+            <div><b>No one detected. Stand at point 2.</b><span class="sub">Stand one step out from the corner.</span></div>
+          </div>
+          <div class="spread" data-show="cal=mark;cap=none"><small>Spread</small><b class="muted">none</b></div>
+          <!-- mark: multi -->
+          <div class="smsg" data-show="cal=mark;cap=multi">
+            <svg class="i"><use href="#i-alert"/></svg>
+            <div><b>2 people detected. Ask others to step out.</b><span class="sub">Capture starts when only you are in view.</span></div>
+          </div>
+          <!-- mark: moving -->
+          <div class="smsg" data-show="cal=mark;cap=moving">
+            <span class="cd"><svg viewBox="0 0 44 44"><circle class="bg" cx="22" cy="22" r="18"/></svg><span>3 s</span></span>
+            <div><b>Hold still</b><span class="sub">The countdown restarts while you move.</span></div>
+          </div>
+          <div class="spread" data-show="cal=mark;cap=moving"><small>Spread</small><b class="bad">240 mm</b></div>
+          <!-- mark: offline -->
+          <div class="smsg" data-show="cal=mark;cap=offline">
+            <svg class="i"><use href="#i-offline"/></svg>
+            <div><b>Pro is offline</b><span class="sub">Capture resumes when it reconnects. Point 1 is kept.</span></div>
+          </div>
+          <!-- mark: outside -->
+          <div class="smsg" data-show="cal=mark;cap=outside">
+            <svg class="i"><use href="#i-alert"/></svg>
+            <div><b>Point 2 is outside the Pro's view</b><span class="sub">The Pro cannot see you there. Move the point into the shaded area.</span></div>
+          </div>
+          <div class="sact" data-show="cal=mark;cap=outside"><button class="btn" data-set="cap=capturing">Move it inside</button></div>
+          <div class="sact" data-show="cal=mark;cap!=outside"><button class="btn primary" disabled title="Needs 3 points">Review fit</button></div>
+
+          <!-- review -->
+          <div class="smsg" data-show="cal=review;fit=good"><div><b>RMS 84 mm</b><span class="sub">Positions land within about 10 cm.</span></div></div>
+          <div class="sact" data-show="cal=review;fit=good"><button class="btn" data-set="cal=mark cap=capturing">Redo all</button><button class="btn primary" data-set="cal=off sel=none">Accept</button></div>
+          <div class="smsg" data-show="cal=review;fit=poor"><svg class="i"><use href="#i-alert"/></svg><div><b>RMS 156 mm</b><span class="sub">Point 3 is 26 cm off. Redo it first.</span></div></div>
+          <div class="sact" data-show="cal=review;fit=poor"><button class="btn">Try perspective fit</button><button class="btn primary" data-set="cal=mark cap=capturing">Redo P3</button></div>
+
+          <button class="iconbtn" aria-label="Cancel calibration" title="Cancel calibration" data-set="cal=off"><svg class="i"><use href="#i-close"/></svg></button>
+        </div>
+
+        <svg class="cv cv-main" id="cv" viewBox="-440 -110 1160 770" role="img" aria-label="Living room plan in metres">
+          <rect x="-600" y="-300" width="1600" height="1200" fill="url(#gMinor)"/>
+          <rect x="-600" y="-300" width="1600" height="1200" fill="url(#gMajor)"/>
+          <g class="ax">
+            <text x="-400" y="-84" text-anchor="middle">-4</text><text x="-300" y="-84" text-anchor="middle">-3</text><text x="-200" y="-84" text-anchor="middle">-2</text><text x="-100" y="-84" text-anchor="middle">-1</text><text x="0" y="-84" text-anchor="middle">0</text><text x="100" y="-84" text-anchor="middle">1</text><text x="200" y="-84" text-anchor="middle">2</text><text x="300" y="-84" text-anchor="middle">3</text><text x="400" y="-84" text-anchor="middle">4</text><text x="500" y="-84" text-anchor="middle">5</text><text x="600" y="-84" text-anchor="middle">6</text><text x="700" y="-84" text-anchor="end">7 m</text>
+            <text x="-432" y="107">1</text><text x="-432" y="207">2</text><text x="-432" y="307">3</text><text x="-432" y="407">4</text><text x="-432" y="507">5</text><text x="-432" y="607">6 m</text>
+          </g>
+          <rect class="roomfill" x="0" y="0" width="420" height="510"/>
+
+          <!-- Pro coverage -->
+          <g class="cov" data-show="sel!=one">
+            <path class="wedge" id="proWedge" d="M210 0L-266.3 275A550 550 0 0 0 686.3 275Z"/>
+            <path class="wedge-h" id="proWedgeH" mask="url(#outside)" d="M210 0L-266.3 275A550 550 0 0 0 686.3 275Z"/>
+            <g data-show="sel=sensor;cal=off;mode=edit">
+              <path class="r-ghost" d="M210 0L-309.6 300A600 600 0 0 0 729.6 300Z" fill="none"/>
+              <text class="ringl halo" x="736" y="322" text-anchor="end">was 6.0 m</text>
+            </g>
+            <path class="ring" d="M123.4 50A100 100 0 0 0 296.6 50M36.8 100A200 200 0 0 0 383.2 100M-49.8 150A300 300 0 0 0 469.8 150M-136.4 200A400 400 0 0 0 556.4 200M-223 250A500 500 0 0 0 643 250"/>
+            <g class="ringl halo" text-anchor="end">
+              <text x="116" y="66">1 m</text><text x="29" y="116">2 m</text><text x="-57" y="166">3 m</text><text x="-144" y="216">4 m</text><text x="-230" y="266">5 m</text>
+              <text id="proMaxL" x="-274" y="296">5.5 m</text>
+            </g>
+          </g>
+
+          <!-- One coverage and range rings -->
+          <g class="cov" data-show="sel=one">
+            <path class="wedge" d="M90 0L-429.6 300A600 600 0 0 0 609.6 300Z"/>
+            <path class="wedge-h" mask="url(#outside)" d="M90 0L-429.6 300A600 600 0 0 0 609.6 300Z"/>
+            <path class="r-wall" d="M-351.7 255A510 510 0 0 0 531.7 255"/>
+            <text class="ringl halo" x="90" y="548" text-anchor="middle" style="fill:var(--cv-dim)">far wall 5.1 m</text>
+            <g data-show="one=sen0609">
+              <path class="r-dev" d="M-429.6 300A600 600 0 0 0 609.6 300"/>
+              <text class="rl halo" x="-420" y="330" style="fill:var(--epp-text-muted)">on device 6.0 m</text>
+              <path class="r-min" id="rMin" d="M38 30A60 60 0 0 0 142 30"/>
+              <text class="rl halo" id="rMinL" x="90" y="88" text-anchor="middle" style="fill:var(--epp-text-muted)">min 0.6 m</text>
+              <path class="r-trig" id="rTrig" d="M-256.4 200A400 400 0 0 0 436.4 200"/>
+              <text class="rl halo" id="rTrigL" x="444" y="206" style="fill:var(--epp-accent-ink)">trigger 4.0 m</text>
+              <path class="r-max" id="rMax" d="M-343 250A500 500 0 0 0 523 250"/>
+              <text class="rl halo" id="rMaxL" x="531" y="256">max 5.0 m</text>
+              <path class="r-live" d="M-204.4 170A340 340 0 0 0 384.4 170"/>
+              <text class="rl halo" x="90" y="322" text-anchor="middle" style="fill:var(--t-1)">3.4 m</text>
+            </g>
+            <g data-show="one=sen0395">
+              <path class="r-dev" d="M-377.6 270A540 540 0 0 0 557.6 270"/>
+              <text class="rl halo" x="-370" y="300" style="fill:var(--epp-text-muted)">on device 5.40 m</text>
+              <path class="r-max" id="r95Max" d="M-338.7 247.5A495 495 0 0 0 518.7 247.5"/>
+              <text class="rl halo" id="r95MaxL" x="527" y="254">max 4.95 m</text>
+            </g>
+          </g>
+
+          <!-- zones -->
+          <g class="zones">
+            <g data-zkey="sofa">
+              <polygon class="zone z-sofa hot occ" data-zpoly="sofa" data-set="sel=zone zone=sofa" points="30,330 250,330 250,400 120,400 120,480 30,480"/>
+              <text class="zl z-sofa halo" x="42" y="360">Sofa</text>
+            </g>
+            <g data-zkey="desk">
+              <polygon class="zone z-desk hot" data-zpoly="desk" data-set="sel=zone zone=desk" points="280,130 390,130 390,250 280,250"/>
+              <text class="zl z-desk halo" x="292" y="158">Desk</text>
+            </g>
+            <g data-zkey="entry">
+              <polygon class="zone z-entry hot" data-zpoly="entry" data-set="sel=zone zone=entry" points="260,430 410,430 410,505 260,505"/>
+              <text class="zl z-entry halo" x="410" y="420" text-anchor="end">Doorway entry</text>
+            </g>
+          </g>
+
+          <path class="wall" d="M380 510H420V0H0V510H290"/>
+          <path class="door" d="M290 510V600M380 510A90 90 0 0 1 290 600"/>
+          <text class="small halo" x="335" y="630" text-anchor="middle">Door</text>
+
+          <g data-show="sel!=one;cal=off">
+            <path class="dim" d="M0 -42H420M0 -52V-32M420 -52V-32"/>
+            <text class="dimt halo" x="340" y="-52" text-anchor="middle">4.20 m</text>
+            <path class="dim" d="M462 0V510M452 0H472M452 510H472"/>
+            <text class="dimt halo" x="484" y="262" transform="rotate(90 484 262)" text-anchor="middle">5.10 m</text>
+          </g>
+
+          <!-- live targets -->
+          <g data-show="cal=off">
+            <polyline class="trail" stroke="var(--t-1)" points="108,288 126,312 146,344 165,370"/>
+            <polyline class="trail" stroke="var(--t-2)" points="300,220 310,250 320,280 330,300"/>
+            <circle class="tgt" cx="165" cy="370" r="15" fill="var(--t-1)"/>
+            <circle class="tgt" cx="330" cy="300" r="15" fill="var(--t-2)"/>
+          </g>
+
+          <!-- selected zone handles -->
+          <g data-show="mode=edit;cal=off;sel=zone;zone=sofa">
+            <g stroke="var(--z-sofa)"><rect class="zh" x="22" y="322" width="16" height="16"/><rect class="zh" x="242" y="322" width="16" height="16"/><rect class="zh" x="242" y="392" width="16" height="16"/><rect class="zh" x="112" y="392" width="16" height="16"/><rect class="zh" x="112" y="472" width="16" height="16"/><rect class="zh" x="22" y="472" width="16" height="16"/></g>
+            <g class="hit"><circle cx="30" cy="330" r="32"/><circle cx="250" cy="330" r="32"/><circle cx="250" cy="400" r="32"/><circle cx="120" cy="400" r="32"/><circle cx="120" cy="480" r="32"/><circle cx="30" cy="480" r="32"/></g>
+          </g>
+          <g data-show="mode=edit;cal=off;sel=zone;zone=desk">
+            <g stroke="var(--z-desk)"><rect class="zh" x="272" y="122" width="16" height="16"/><rect class="zh" x="382" y="122" width="16" height="16"/><rect class="zh" x="382" y="242" width="16" height="16"/><rect class="zh" x="272" y="242" width="16" height="16"/></g>
+            <g class="hit"><circle cx="280" cy="130" r="32"/><circle cx="390" cy="130" r="32"/><circle cx="390" cy="250" r="32"/><circle cx="280" cy="250" r="32"/></g>
+          </g>
+          <g data-show="mode=edit;cal=off;sel=zone;zone=entry">
+            <g stroke="var(--z-entry)"><rect class="zh" x="252" y="422" width="16" height="16"/><rect class="zh" x="402" y="422" width="16" height="16"/><rect class="zh" x="402" y="497" width="16" height="16"/><rect class="zh" x="252" y="497" width="16" height="16"/></g>
+            <g class="hit"><circle cx="260" cy="430" r="32"/><circle cx="410" cy="430" r="32"/><circle cx="410" cy="505" r="32"/><circle cx="260" cy="505" r="32"/></g>
+          </g>
+          <!-- outline vertex handles -->
+          <g data-show="mode=edit;cal=off;sel=none">
+            <circle class="vh" cx="0" cy="0" r="11"/><circle class="vh" cx="420" cy="0" r="11"/><circle class="vh" cx="420" cy="510" r="11"/><circle class="vh" cx="0" cy="510" r="11"/>
+            <g class="hit"><circle cx="0" cy="0" r="32"/><circle cx="420" cy="0" r="32"/><circle cx="420" cy="510" r="32"/><circle cx="0" cy="510" r="32"/></g>
+          </g>
+
+          <!-- sensors -->
+          <g class="hot" data-set="sel=sensor sensor=pro" role="button" aria-label="Pro, front wall">
+            <circle cx="210" cy="-4" r="40" fill="transparent"/>
+            <circle class="selring" cx="210" cy="-4" r="34" data-show="sel=sensor"/>
+            <circle class="selring" cx="210" cy="-4" r="34" data-show="cal!=off"/>
+            <rect class="sens" x="185" y="-13" width="50" height="17" rx="5"/><circle class="lens" cx="210" cy="-4" r="5"/>
+            <text class="small halo" x="244" y="-18" data-show="sensor=pro">Pro</text>
+            <text class="small halo" x="244" y="-18" data-show="sensor=lite">Lite</text>
+            <circle class="offmark" cx="233" cy="-14" r="8" data-show="cal=mark;cap=offline"/>
+          </g>
+          <g class="hot" data-set="sel=one" role="button" aria-label="One, by TV">
+            <circle cx="90" cy="-4" r="40" fill="transparent"/>
+            <circle class="selring" cx="90" cy="-4" r="30" data-show="sel=one"/>
+            <rect class="sens" x="74" y="-11" width="32" height="14" rx="4"/><circle class="lens" cx="90" cy="-4" r="4"/>
+            <text class="small halo" x="66" y="-18" text-anchor="end">One</text>
+          </g>
+
+          <!-- calibration overlay -->
+          <g data-show="cal=place">
+            <path class="dim" d="M0 40H210M0 30V50M210 30V50"/>
+            <text class="dimt halo" x="105" y="72" text-anchor="middle">2.10 m</text>
+            <path d="M150 -4H175M245 -4H270" stroke="var(--epp-accent)" stroke-width="3" marker-end="none"/>
+            <path d="M158 -12L150 -4L158 4M262 -12L270 -4L262 4" fill="none" stroke="var(--epp-accent)" stroke-width="3"/>
+          </g>
+          <g data-show="cal=mark">
+            <circle class="pt" cx="50" cy="250" r="15"/><text class="ptn" x="50" y="255" text-anchor="middle">1</text>
+            <text class="ptl halo" x="74" y="256">P1 31 mm</text>
+            <circle class="pt pend" cx="370" cy="460" r="15"/><text class="ptn pend" x="370" y="465" text-anchor="middle">3</text>
+            <circle class="pt pend" cx="370" cy="250" r="15"/><text class="ptn pend" x="370" y="255" text-anchor="middle">4</text>
+            <g data-show="cap!=outside">
+              <circle class="pulse" cx="50" cy="460" r="30" fill="var(--epp-accent)" data-show="cap=capturing"/>
+              <circle class="pt live" cx="50" cy="460" r="15"/><text class="ptn live" x="50" y="465" text-anchor="middle">2</text>
+            </g>
+            <g data-show="cap=capturing"><circle class="tgt" cx="62" cy="450" r="10" fill="var(--t-1)"/><text class="ptl halo" x="80" y="490">P2 spread 38 mm</text></g>
+            <g data-show="cap=multi"><circle class="tgt" cx="62" cy="450" r="10" fill="var(--t-1)"/><circle class="tgt" cx="300" cy="330" r="10" fill="var(--t-2)"/></g>
+            <g data-show="cap=moving"><polyline class="trail" stroke="var(--t-1)" points="150,330 130,360 110,385 95,410"/><circle class="tgt" cx="95" cy="410" r="10" fill="var(--t-1)"/></g>
+            <g data-show="cap=outside">
+              <circle class="pt bad" cx="50" cy="60" r="15"/><text class="ptn bad" x="50" y="65" text-anchor="middle">2</text>
+              <text class="ptl halo" x="74" y="66" style="fill:var(--epp-warning-ink)">P2 outside view</text>
+              <circle class="pt pend" cx="50" cy="460" r="15" style="stroke:var(--epp-accent)"/><text class="ptl halo" x="74" y="466" style="fill:var(--epp-accent-ink)">suggested</text>
+            </g>
+          </g>
+          <g data-show="cal=review">
+            <g data-show="fit=good">
+              <path class="resid" d="M50 250L54 254.7M50 460L44 467M370 460L378 453M370 250L365 245"/>
+              <circle class="pt" cx="50" cy="250" r="13"/><circle class="pt" cx="50" cy="460" r="13"/><circle class="pt" cx="370" cy="460" r="13"/><circle class="pt" cx="370" cy="250" r="13"/>
+              <circle class="fitpt" cx="54" cy="254.7" r="6"/><circle class="fitpt" cx="44" cy="467" r="6"/><circle class="fitpt" cx="378" cy="453" r="6"/><circle class="fitpt" cx="365" cy="245" r="6"/>
+              <circle class="worst" cx="370" cy="460" r="24"/>
+              <text class="ptl halo" x="74" y="256">P1 62 mm</text><text class="ptl halo" x="74" y="466">P2 91 mm</text>
+              <text class="ptl halo" x="340" y="466" text-anchor="end" style="fill:var(--epp-warning-ink)">P3 106 mm, worst</text><text class="ptl halo" x="346" y="256" text-anchor="end">P4 70 mm</text>
+            </g>
+            <g data-show="fit=poor">
+              <path class="resid" d="M50 250L55 245M50 460L42 469M370 460L350 443M370 250L376 242.5"/>
+              <circle class="pt" cx="50" cy="250" r="13"/><circle class="pt" cx="50" cy="460" r="13"/><circle class="pt" cx="370" cy="460" r="13"/><circle class="pt" cx="370" cy="250" r="13"/>
+              <circle class="fitpt" cx="55" cy="245" r="6"/><circle class="fitpt" cx="42" cy="469" r="6"/><circle class="fitpt" cx="350" cy="443" r="6"/><circle class="fitpt" cx="376" cy="242.5" r="6"/>
+              <circle class="worst" cx="370" cy="460" r="26"/>
+              <text class="ptl halo" x="74" y="256">P1 70 mm</text><text class="ptl halo" x="74" y="466">P2 120 mm</text>
+              <text class="ptl halo" x="400" y="500" text-anchor="end" style="fill:var(--epp-warning-ink)">P3 262 mm, worst</text><text class="ptl halo" x="346" y="236" text-anchor="end">P4 95 mm</text>
+            </g>
+          </g>
+        </svg>
+
+        <div class="cvfoot">
+          <span class="legend" data-show="sel!=one;cal=off"><span class="sw hatch-sw"></span>Hatched: the sensor sees past the wall</span>
+          <span class="legend" data-show="cal=off;sel!=one"><span class="sw tgt-sw"></span>People, last 2 s</span>
+          <span class="legend" data-show="sel=one;cal=off;one=sen0609"><span class="sw line" style="border-color:var(--t-1)"></span>Live distance</span>
+          <span class="legend" data-show="sel=one;cal=off"><span class="sw line" style="border-top-style:dotted;border-color:var(--epp-text-muted)"></span>On the device now</span>
+          <span class="legend" data-show="sel=one;cal=off"><span class="sw line" style="border-top-style:dashed;border-color:var(--cv-dim)"></span>Far wall</span>
+          <span class="legend" data-show="cal=mark|place"><span class="sw hatch-sw"></span>Shaded: what the Pro can see</span>
+          <span class="legend" data-show="cal=review"><span class="sw" style="background:var(--epp-accent);border-radius:50%"></span>Where you stood</span>
+          <span class="legend" data-show="cal=review"><span class="sw" style="background:var(--cv-fit);border-radius:50%"></span>Where the Pro places you</span>
+          <span class="num cursor-readout" data-show="mode=edit;cal=off">x 1.65 m, y 3.70 m</span>
+        </div>
+      </div>
+    </div>
+
+    <aside class="card insp" aria-label="Inspector">
+      <span class="handle" aria-hidden="true"></span>
+
+      <!-- nothing selected -->
+      <div class="panel" data-show="mode=edit;cal=off;sel=none">
+        <div class="ph">
+          <h3>Room</h3>
+          <div class="menuwrap">
+            <button class="iconbtn" aria-label="More room actions" aria-haspopup="menu" data-set="menu=open"><svg class="i"><use href="#i-more"/></svg></button>
+            <div class="menu" role="menu" data-show="menu=open">
+              <button role="menuitem" class="danger" data-set="dialog=delroom menu=closed" style="color:var(--epp-danger-ink)"><svg class="i"><use href="#i-trash"/></svg>Delete room</button>
+            </div>
+          </div>
+        </div>
+        <div class="stack" style="margin-top:calc(-1 * var(--epp-space-2))">
+          <div class="row"><label for="rn">Name</label><span class="field" style="width:190px"><input id="rn" class="txt" value="Living room"></span></div>
+          <div class="row"><label for="ra">Area</label><span class="field" style="width:190px"><select id="ra"><option>Living room</option><option>Kitchen</option><option>Bedroom</option><option>Hallway</option><option>Study</option><option>No area</option></select></span></div>
+          <div class="row"><label for="rc">Clears after</label><span class="field"><input id="rc" value="45" inputmode="numeric"><span class="muted">s</span></span></div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h3>Sensors</h3></div>
+          <div class="srow2">
+            <button class="who" data-set="sel=sensor sensor=pro"><span class="badge model">Pro</span><span class="dot" title="Online"></span><span>Front wall<small>RMS 84 mm</small></span></button>
+            <button class="btn text" data-set="cal=place sel=none sensor=pro"><svg class="i i-sm"><use href="#i-target"/></svg>Calibrate</button>
+          </div>
+          <div class="srow2">
+            <button class="who" data-set="sel=one"><span class="badge model">One</span><span class="dot" title="Online"></span><span>By TV<small>Not calibrated</small></span></button>
+            <button class="btn text" data-set="sel=one"><svg class="i i-sm"><use href="#i-target"/></svg>Calibrate</button>
+          </div>
+        </div>
+
+        <div class="sec">
+          <div class="sec-h"><h3>Zones</h3><span class="muted num" data-slotcount>Device slots 2 of 4</span></div>
+          <ul class="list">
+            <li data-zkey="sofa"><button class="lrow" aria-pressed="false" data-set="sel=zone zone=sofa" data-zrow="sofa"></button></li>
+            <li data-zkey="desk"><button class="lrow" aria-pressed="false" data-set="sel=zone zone=desk" data-zrow="desk"></button></li>
+            <li data-zkey="entry"><button class="lrow" aria-pressed="false" data-set="sel=zone zone=entry" data-zrow="entry"></button></li>
+          </ul>
+          <button class="btn text" style="align-self:flex-start" data-set="tool=poly"><svg class="i"><use href="#i-plus"/></svg>Draw a zone</button>
+        </div>
+      </div>
+
+      <!-- zone selected: one template for every zone -->
+      <div class="panel" data-show="mode=edit;cal=off;sel=zone">
+        <div class="ph">
+          <button class="iconbtn" aria-label="Back to room" data-set="sel=none"><svg class="i"><use href="#i-back"/></svg></button>
+          <span class="sw" data-zf="sw"></span>
+          <h3 data-zf="title">Sofa</h3>
+        </div>
+        <div class="stack">
+          <div class="fld"><label for="zn">Name</label><span class="field wide"><input id="zn" class="txt" data-zf="name" value="Sofa"></span></div>
+          <div class="fld"><span class="lab">Colour</span>
+            <div class="swatches" role="group" aria-label="Zone colour">
+              <button aria-label="Teal" data-zcolor="sofa" style="background:var(--z-sofa)"><svg class="i i-sm"><use href="#i-check"/></svg></button>
+              <button aria-label="Amber" data-zcolor="desk" style="background:var(--z-desk)"><svg class="i i-sm"><use href="#i-check"/></svg></button>
+              <button aria-label="Purple" data-zcolor="entry" style="background:var(--z-entry)"><svg class="i i-sm"><use href="#i-check"/></svg></button>
+              <button aria-label="Indigo" data-zcolor="indigo" style="background:#5c6bc0"><svg class="i i-sm"><use href="#i-check"/></svg></button>
+              <button aria-label="Pink" data-zcolor="pink" style="background:#d81b60"><svg class="i i-sm"><use href="#i-check"/></svg></button>
+            </div>
+          </div>
+          <div class="row"><label for="zc">Clears after</label><span class="field"><input id="zc" data-zf="clears" value="30" inputmode="numeric"><span class="muted">s</span></span></div>
+        </div>
+        <div class="sec">
+          <div class="sec-h"><span style="font-weight:var(--epp-weight-medium)">Runs on</span><span class="muted num" data-slotcount>Device slots 2 of 4</span></div>
+          <div class="slots" role="group" aria-label="Runs on">
+            <button data-slot="1"></button><button data-slot="2"></button><button data-slot="3"></button><button data-slot="4"></button>
+            <button class="ha" data-slot="0">Home Assistant</button>
+          </div>
+          <p class="note" data-zf="slotnote"></p>
+        </div>
+        <div class="sec" data-zf="syncsec"></div>
+        <button class="btn danger" style="align-self:flex-start" data-set="sel=none toast=zone"><svg class="i"><use href="#i-trash"/></svg>Delete zone</button>
+      </div>
+
+      <!-- sensor selected (Pro or Lite) -->
+      <div class="panel" data-show="mode=edit;cal=off;sel=sensor">
+        <div class="ph">
+          <button class="iconbtn" aria-label="Back to room" data-set="sel=none"><svg class="i"><use href="#i-back"/></svg></button>
+          <span class="badge model" data-show="sensor=pro">Pro</span><span class="badge model" data-show="sensor=lite">Lite</span>
+          <h3>Front wall</h3>
+          <span class="status ok"><span class="dot"></span>Online</span>
+        </div>
+        <div class="liveread">
+          <span class="state on"><svg class="i i-sm"><use href="#i-person"/></svg>Tracking 2 people</span>
+          <span class="muted" style="font-size:var(--epp-font-sm)">RMS 84 mm, calibrated 3 days ago</span>
+        </div>
+        <button class="btn primary" data-set="cal=place sel=none"><svg class="i"><use href="#i-target"/></svg>Calibrate</button>
+
+        <div class="sec" style="gap:0">
+          <div class="set-row">
+            <div class="top"><span class="lab">Update speed</span><span class="status ok"><svg class="i i-sm"><use href="#i-check"/></svg>Applied</span></div>
+            <div class="seg" role="group" aria-label="Update speed"><button aria-pressed="false">Slow</button><button aria-pressed="true"><svg class="i i-sm ck"><use href="#i-check"/></svg>Normal</button><button aria-pressed="false">Fast</button></div>
+          </div>
+          <div class="set-row">
+            <div class="top"><span class="lab">Detail level</span><span class="status busy"><svg class="i i-sm spin"><use href="#i-spin"/></svg>Applying</span></div>
+            <div class="seg" role="group" aria-label="Detail level"><button aria-pressed="false">Low</button><button aria-pressed="false">Normal</button><button aria-pressed="true"><svg class="i i-sm ck"><use href="#i-check"/></svg>High</button></div>
+            <span class="help">Higher detail separates people standing close together.</span>
+          </div>
+          <div class="set-row">
+            <div class="sl-row">
+              <label for="mr">Max range</label><output class="num" for="mr">5.5 m</output>
+              <input id="mr" type="range" min="1" max="6" step="0.1" value="5.5" data-unit=" m" data-fixed="1">
+              <span class="help">Ignore anyone farther than this.</span>
+            </div>
+            <span class="status ok"><svg class="i i-sm"><use href="#i-check"/></svg>Applied, was 6.0 m</span>
+          </div>
+          <div class="set-row">
+            <div class="top"><label class="lab" for="pt1">Presence clears after</label><span class="field"><input id="pt1" value="30" inputmode="numeric"><span class="muted">s</span></span></div>
+            <div class="top"><span class="status bad"><svg class="i i-sm"><use href="#i-alert"/></svg>Failed, Pro was offline</span><button class="btn text sm"><svg class="i i-sm"><use href="#i-retry"/></svg>Retry</button></div>
+          </div>
+          <div class="set-row" data-show="sensor=pro">
+            <div class="top"><label class="lab" for="pt2">Motion clears after</label><span class="field"><input id="pt2" value="10" inputmode="numeric"><span class="muted">s</span></span></div>
+            <span class="status ok"><svg class="i i-sm"><use href="#i-check"/></svg>Applied</span>
+          </div>
+        </div>
+
+        <div class="sec" data-show="sensor=pro" style="gap:0">
+          <div class="set-row">
+            <div class="top"><span class="lab" id="hp">Hold presence for still people</span><button class="toggle" role="switch" aria-checked="true" aria-labelledby="hp"></button></div>
+            <span class="help">Keeps the room occupied while someone sits still.</span>
+          </div>
+          <div class="set-row">
+            <div class="sl-row"><label for="spr">Still range</label><output class="num" for="spr">4.0 m</output><input id="spr" type="range" min="0.5" max="8" step="0.1" value="4" data-unit=" m" data-fixed="1"></div>
+            <span class="status ok"><svg class="i i-sm"><use href="#i-check"/></svg>Applied</span>
+          </div>
+          <div class="set-row">
+            <div class="sl-row"><label for="sps">Still sensitivity</label><output class="num" for="sps">6 of 9</output><input id="sps" type="range" min="0" max="9" step="1" value="6" data-unit=" of 9"></div>
+            <span class="status ok"><svg class="i i-sm"><use href="#i-check"/></svg>Applied</span>
+          </div>
+        </div>
+
+        <details class="adv">
+          <summary><svg class="i i-sm"><use href="#i-chev"/></svg>Advanced</summary>
+          <div class="stack" style="padding-bottom:var(--epp-space-2)">
+            <p class="note"><svg class="i i-sm"><use href="#i-info"/></svg>Calibration absorbs mounting angle; change only if you skip calibration.</p>
+            <div class="row"><label for="ang">Mounting angle</label><span class="field"><input id="ang" value="0" inputmode="numeric"><span class="muted">°</span></span></div>
+            <div class="row"><span class="lab" id="ud">Mounted upside down</span><button class="toggle" role="switch" aria-checked="false" aria-labelledby="ud"></button></div>
+          </div>
+        </details>
+      </div>
+
+      <!-- the One selected: range tuner -->
+      <div class="panel" data-show="mode=edit;cal=off;sel=one">
+        <div class="ph">
+          <button class="iconbtn" aria-label="Back to room" data-set="sel=none"><svg class="i"><use href="#i-back"/></svg></button>
+          <span class="badge model">One</span>
+          <h3>By TV</h3>
+          <span class="status ok"><span class="dot"></span>Online</span>
+        </div>
+
+        <div data-show="one=sen0609" class="stack" style="gap:var(--epp-space-4)">
+          <div class="liveread"><span class="big">3.4 m</span><span class="state on"><svg class="i i-sm"><use href="#i-person"/></svg>Presence on</span></div>
+          <div class="sl-row">
+            <label for="oMin">Minimum distance</label><output class="num" for="oMin">0.6 m</output>
+            <input id="oMin" type="range" min="0" max="8" step="0.1" value="0.6" data-unit=" m" data-fixed="1" data-ring="rMin" data-ringl="min">
+            <span class="help">Ignore anything closer than this.</span>
+          </div>
+          <div class="sl-row">
+            <label for="oTrig">Trigger distance</label><output class="num" for="oTrig">4.0 m</output>
+            <input id="oTrig" type="range" min="0" max="8" step="0.1" value="4" data-unit=" m" data-fixed="1" data-ring="rTrig" data-ringl="trigger">
+            <span class="help">Someone closer than this turns presence on.</span>
+            <button class="btn text sm use" data-use="oTrig">Use current distance, 3.4 m</button>
+          </div>
+          <div class="sl-row">
+            <label for="oMax">Maximum distance</label><output class="num" for="oMax">5.0 m</output>
+            <input id="oMax" type="range" min="0" max="8" step="0.1" value="5" data-unit=" m" data-fixed="1" data-ring="rMax" data-ringl="max">
+            <span class="help">Presence stays on until they pass this. Anything farther is ignored.</span>
+            <button class="btn text sm use" data-use="oMax">Use current distance, 3.4 m</button>
+          </div>
+          <div class="sl-row">
+            <label for="oSens">Sensitivity</label><output class="num" for="oSens">7 of 9</output>
+            <input id="oSens" type="range" min="0" max="9" step="1" value="7" data-unit=" of 9">
+            <span class="help">Higher catches smaller movement, and more false triggers.</span>
+          </div>
+        </div>
+
+        <div data-show="one=sen0395" class="stack" style="gap:var(--epp-space-4)">
+          <div class="presence-xl"><svg class="i i-lg"><use href="#i-person"/></svg><span class="big">Presence on</span></div>
+          <p>Walk toward the edge of the room and watch Presence.</p>
+          <div class="sl-row">
+            <label for="o95">Maximum distance</label><output class="num" for="o95">4.95 m</output>
+            <input id="o95" type="range" min="0.15" max="9.45" step="0.15" value="4.95" data-unit=" m" data-fixed="2" data-ring="r95Max" data-ringl="max">
+            <span class="help">Ignore anything farther than this. Moves in 15 cm steps.</span>
+          </div>
+          <div class="sl-row">
+            <label for="o95s">Sensitivity</label><output class="num" for="o95s">7 of 9</output>
+            <input id="o95s" type="range" min="0" max="9" step="1" value="7" data-unit=" of 9">
+            <span class="help">Higher catches smaller movement, and more false triggers.</span>
+          </div>
+        </div>
+
+        <div class="applybar">
+          <p class="note"><svg class="i i-sm"><use href="#i-info"/></svg>Range is the one setting that needs Apply: the radar restarts to take it, and presence pauses for about 5 s.</p>
+          <span class="status bad" data-show="apply=idle;one=sen0609"><svg class="i i-sm"><use href="#i-alert"/></svg>Not applied. Device uses max 6.0 m.</span>
+          <span class="status bad" data-show="apply=idle;one=sen0395"><svg class="i i-sm"><use href="#i-alert"/></svg>Not applied. Device uses 5.40 m.</span>
+          <span class="status busy" data-show="apply=pending"><svg class="i i-sm spin"><use href="#i-spin"/></svg>Applying, radar restarting</span>
+          <span class="status bad" data-show="apply=failed"><svg class="i i-sm"><use href="#i-offline"/></svg>Failed, One went offline during restart</span>
+          <div class="actions">
+            <button class="btn">Discard changes</button>
+            <button class="btn primary" data-show="apply=idle" data-set="apply=pending">Apply range</button>
+            <button class="btn primary" data-show="apply=pending" disabled><svg class="i i-sm spin"><use href="#i-spin"/></svg>Applying</button>
+            <button class="btn primary" data-show="apply=failed" data-set="apply=pending"><svg class="i i-sm"><use href="#i-retry"/></svg>Retry</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- calibration panel -->
+      <div class="panel" data-show="mode=edit;cal!=off">
+        <div class="ph"><span class="badge model">Pro</span><h3>Calibrate front wall</h3></div>
+        <div class="stack" data-show="cal=place">
+          <div class="row"><span class="lab">Wall</span><span>Front</span></div>
+          <div class="row"><label for="px">Distance from left corner</label><span class="field"><input id="px" value="2.10"><span class="muted">m</span></span></div>
+          <div class="row"><label for="ph">Mounting height</label><span class="field"><input id="ph" value="1.80"><span class="muted">m</span></span></div>
+        </div>
+        <div class="stack" data-show="cal=mark">
+          <ul class="plist">
+            <li><span class="pn ok">1</span>Left wall<span class="v">31 mm</span><button class="btn text sm">Redo</button></li>
+            <li data-show="cap!=outside"><span class="pn live">2</span>Back left corner<span class="v" data-show="cap=capturing">capturing</span><span class="v" data-show="cap!=capturing">waiting</span></li>
+            <li data-show="cap=outside"><span class="pn bad">2</span>Front left corner<span class="v" style="color:var(--epp-warning-ink)">outside view</span></li>
+            <li><span class="pn">3</span>Back right corner<span class="v">next</span></li>
+            <li><span class="pn">4</span>Right wall<span class="v">next</span></li>
+          </ul>
+          <button class="btn text" style="align-self:flex-start"><svg class="i"><use href="#i-plus"/></svg>Add a point</button>
+          <p class="note"><svg class="i i-sm"><use href="#i-info"/></svg>The fit runs by itself once 3 points are marked. A 4th point checks it.</p>
+        </div>
+        <div class="stack" data-show="cal=review">
+          <div>
+            <div class="muted" style="font-size:var(--epp-font-sm)">Fit error (RMS)</div>
+            <div class="big" data-show="fit=good">84 mm</div>
+            <div class="big" data-show="fit=poor" style="color:var(--epp-warning-ink)">156 mm</div>
+          </div>
+          <p data-show="fit=good">Positions land within about 10 cm. Zones narrower than 30 cm will be unreliable.</p>
+          <p data-show="fit=poor">Positions land within about 16 cm. Zones narrower than 50 cm will be unreliable. Point 3 pulls the fit off.</p>
+          <div class="resbars" data-show="fit=good" aria-label="Error per point">
+            <div class="rb-row"><span>P1 left wall</span><span class="track"><i style="width:20.7%"></i></span><span class="v">62 mm</span></div>
+            <div class="rb-row"><span>P2 back left</span><span class="track"><i style="width:30.3%"></i></span><span class="v">91 mm</span></div>
+            <div class="rb-row"><span class="worstflag"><svg class="i i-sm"><use href="#i-alert"/></svg>P3 back right</span><span class="track"><i style="width:35.3%"></i></span><span class="v">106 mm</span></div>
+            <div class="rb-row"><span>P4 right wall</span><span class="track"><i style="width:23.3%"></i></span><span class="v">70 mm</span></div>
+            <div class="scale"><span></span><span>150 mm limit</span><span></span></div>
+          </div>
+          <div class="resbars" data-show="fit=poor" aria-label="Error per point">
+            <div class="rb-row"><span>P1 left wall</span><span class="track"><i style="width:23.3%"></i></span><span class="v">70 mm</span></div>
+            <div class="rb-row"><span>P2 back left</span><span class="track"><i style="width:40%"></i></span><span class="v">120 mm</span></div>
+            <div class="rb-row"><span class="worstflag"><svg class="i i-sm"><use href="#i-alert"/></svg>P3 back right</span><span class="track"><i class="bad" style="width:87.3%"></i></span><span class="v bad">262 mm</span></div>
+            <div class="rb-row"><span>P4 right wall</span><span class="track"><i style="width:31.7%"></i></span><span class="v">95 mm</span></div>
+            <div class="scale"><span></span><span>150 mm limit</span><span></span></div>
+          </div>
+          <p class="note"><svg class="i i-sm"><use href="#i-info"/></svg>Accepting replaces the previous fit (RMS 97 mm). Your 3 zones keep their shapes.</p>
+          <div class="actions" data-show="fit=good"><button class="btn" data-set="cal=mark cap=capturing">Redo all</button><button class="btn primary" data-set="cal=off sel=none">Accept</button></div>
+          <div class="actions" data-show="fit=poor"><button class="btn" data-set="cal=mark cap=capturing">Redo P3</button><button class="btn">Try perspective fit</button></div>
+          <div class="actions" data-show="fit=poor"><button class="btn" data-set="cal=mark cap=capturing">Redo all</button><button class="btn" data-set="cal=off sel=none">Accept anyway</button></div>
+        </div>
+      </div>
+
+      <!-- view mode -->
+      <div class="panel" data-show="mode=view">
+        <div class="vstate" data-show="stale=no">
+          <span class="pill" aria-hidden="true"></span>
+          <div><div class="big">Occupied, 2 people</div><div class="muted">Since 18:42</div></div>
+        </div>
+        <div class="vstate" data-show="stale=yes">
+          <svg class="i"><use href="#i-alert"/></svg>
+          <div><div class="big">No data for 30 s</div><div class="muted">Last known: occupied, 2 people.</div></div>
+        </div>
+        <div class="ztiles">
+          <div class="card ztile occ"><span class="stripe" style="background:var(--z-sofa)"></span><div><div class="zn">Sofa</div><div class="zs">1 person</div></div><div class="st">Occupied<small>for 18 min</small></div></div>
+          <div class="card ztile"><span class="stripe" style="background:var(--z-desk)"></span><div><div class="zn">Desk</div><div class="zs">No one</div></div><div class="st muted">Clear<small>for 4 min</small></div></div>
+          <div class="card ztile"><span class="stripe" style="background:var(--z-entry)"></span><div><div class="zn">Doorway entry</div><div class="zs">No one</div></div><div class="st muted">Clear<small>for 12 min</small></div></div>
+        </div>
+        <p class="sensline" data-show="stale=no"><span class="dot"></span>Pro live · One: presence on, 3.4 m</p>
+        <p class="sensline" data-show="stale=yes"><span class="dot off"></span>Pro: no data for 30 s · One: presence on, 3.4 m</p>
+      </div>
+    </aside>
+  </div>
+</section>
+</main>
+
+<!-- ============ OVERLAYS ============ -->
+<div class="scrim" data-show="sheet=newroom|assign" data-set="sheet=none"></div>
+<div class="scrim" data-show="dialog=delroom" data-set="dialog=none"></div>
+
+<section class="sheet" role="dialog" aria-modal="true" aria-labelledby="nrh" data-show="sheet=newroom">
+  <div class="sh"><h2 id="nrh">New room</h2><button class="iconbtn" aria-label="Close" data-set="sheet=none"><svg class="i"><use href="#i-close"/></svg></button></div>
+  <div class="sb">
+    <div class="fld"><label for="nrn">Name</label><span class="field wide"><input id="nrn" class="txt" value="Kitchen"></span></div>
+    <div class="fld"><label for="nra">Area</label><span class="field wide"><select id="nra"><option>Kitchen</option><option>Living room</option><option>Bedroom</option><option>Hallway</option><option>Study</option><option>No area</option></select></span>
+      <span class="help">Occupancy sensors for this room appear in this area.</span></div>
+    <div class="fld"><span class="lab" id="nrs">Size</span>
+      <div class="size" role="group" aria-labelledby="nrs">
+        <span class="field"><input aria-label="Width" value="3.40" inputmode="decimal"><span class="muted">m</span></span>
+        <span class="muted">by</span>
+        <span class="field"><input aria-label="Depth" value="2.80" inputmode="decimal"><span class="muted">m</span></span>
+      </div>
+      <span class="help">Width along the wall the sensor hangs on. You can reshape the walls in the room.</span></div>
+    <div class="fld"><span class="lab">Sensors</span>
+      <ul class="pick">
+        <li><label><input type="checkbox" checked><span class="grow"><b>Lite</b><small>Area Kitchen, online</small></span><span class="dot"></span></label></li>
+      </ul>
+      <span class="help">Only sensors that are not in a room are listed.</span></div>
+  </div>
+  <div class="sf"><button class="btn" data-set="sheet=none">Cancel</button><button class="btn primary" data-set="sheet=none screen=room sel=none mode=edit cal=off">Create room</button></div>
+</section>
+
+<section class="sheet" role="dialog" aria-modal="true" aria-labelledby="ash" data-show="sheet=assign">
+  <div class="sh"><h2 id="ash">Add Lite to a room</h2><button class="iconbtn" aria-label="Close" data-set="sheet=none"><svg class="i"><use href="#i-close"/></svg></button></div>
+  <div class="sb">
+    <p class="muted">Lite, area Kitchen, online</p>
+    <ul class="pick" role="radiogroup" aria-label="Room">
+      <li><label><input type="radio" name="ar"><span class="grow"><b>Living room</b><small>Pro, One</small></span></label></li>
+      <li><label><input type="radio" name="ar"><span class="grow"><b>Bedroom</b><small>Lite</small></span></label></li>
+      <li><label><input type="radio" name="ar"><span class="grow"><b>Hallway</b><small>One</small></span></label></li>
+      <li><label><input type="radio" name="ar"><span class="grow"><b>Landing</b><small>One</small></span></label></li>
+      <li><label><input type="radio" name="ar" checked><span class="grow"><b>Office</b><small>Lite</small></span></label></li>
+      <li><button data-set="sheet=newroom"><svg class="i"><use href="#i-plus"/></svg>New room with this sensor</button></li>
+    </ul>
+    <p class="note"><svg class="i i-sm"><use href="#i-info"/></svg>Calibrate the Lite after adding it, so its targets land on the room plan.</p>
+  </div>
+  <div class="sf"><button class="btn" data-set="sheet=none">Cancel</button><button class="btn primary" data-set="sheet=none">Add to room</button></div>
+</section>
+
+<div class="card dialog" role="alertdialog" aria-modal="true" aria-labelledby="drh" data-show="dialog=delroom">
+  <h2 id="drh">Delete Living room?</h2>
+  <p>Its 3 zones and the Pro's calibration are deleted. Pro and One go back to the sensors that are not in a room. You cannot undo this.</p>
+  <div class="actions"><button class="btn" data-set="dialog=none">Cancel</button><button class="btn danger-fill" data-set="dialog=none screen=rooms sel=none">Delete room</button></div>
+</div>
+
+<div class="toast" role="status" data-show="toast=zone"><span data-zf="toast">Sofa deleted</span><button class="btn text sm" data-set="toast=none sel=zone">Undo</button></div>
+
+<!-- mock-state switcher, not part of the design -->
+<details class="mockbar" data-show="mock!=hide">
+  <summary>Mock states</summary>
+  <div class="mb">
+    <div class="mr"><span>screen</span><button aria-pressed="false" data-set="screen=rooms rooms=list">Rooms</button><button aria-pressed="false" data-set="screen=rooms rooms=empty">Rooms, empty</button><button aria-pressed="false" data-set="screen=room">Room</button></div>
+    <div class="mr"><span>mode</span><button aria-pressed="false" data-set="mode=edit">Edit</button><button aria-pressed="false" data-set="mode=view cal=off">View</button><button aria-pressed="false" data-set="stale=no">live</button><button aria-pressed="false" data-set="stale=yes">stale</button></div>
+    <div class="mr"><span>select</span><button aria-pressed="false" data-set="sel=none cal=off">none</button><button aria-pressed="false" data-set="sel=zone zone=sofa cal=off">Sofa</button><button aria-pressed="false" data-set="sel=zone zone=desk cal=off">Desk</button><button aria-pressed="false" data-set="sel=zone zone=entry cal=off">Entry</button><button aria-pressed="false" data-set="sel=sensor sensor=pro cal=off">Pro</button><button aria-pressed="false" data-set="sel=sensor sensor=lite cal=off">Lite</button><button aria-pressed="false" data-set="sel=one one=sen0609 cal=off">One 0609</button><button aria-pressed="false" data-set="sel=one one=sen0395 cal=off">One 0395</button></div>
+    <div class="mr"><span>apply</span><button aria-pressed="false" data-set="apply=idle">idle</button><button aria-pressed="false" data-set="apply=pending">pending</button><button aria-pressed="false" data-set="apply=failed">failed</button></div>
+    <div class="mr"><span>desk sync</span><button aria-pressed="false" data-set="dsync=writing">writing</button><button aria-pressed="false" data-set="dsync=failed">failed</button></div>
+    <div class="mr"><span>calibrate</span><button aria-pressed="false" data-set="cal=place">Place</button><button aria-pressed="false" data-set="cal=mark">Mark</button><button aria-pressed="false" data-set="cal=review">Review</button><button aria-pressed="false" data-set="cal=off">off</button></div>
+    <div class="mr"><span>capture</span><button aria-pressed="false" data-set="cal=mark cap=capturing">capturing</button><button aria-pressed="false" data-set="cal=mark cap=none">0 targets</button><button aria-pressed="false" data-set="cal=mark cap=multi">2+ targets</button><button aria-pressed="false" data-set="cal=mark cap=moving">moving</button><button aria-pressed="false" data-set="cal=mark cap=offline">offline</button><button aria-pressed="false" data-set="cal=mark cap=outside">outside</button></div>
+    <div class="mr"><span>fit</span><button aria-pressed="false" data-set="cal=review fit=good">good</button><button aria-pressed="false" data-set="cal=review fit=poor">poor</button></div>
+    <div class="mr"><span>overlays</span><button aria-pressed="false" data-set="sheet=newroom">New room</button><button aria-pressed="false" data-set="sheet=assign">Assign</button><button aria-pressed="false" data-set="dialog=delroom">Delete room</button><button aria-pressed="false" data-set="toast=zone">Toast</button></div>
+    <div class="mr"><span></span><button data-set="mock=hide">Hide this panel</button></div>
+  </div>
+</details>
+
+<script>
+const st = { screen: "rooms", rooms: "list", sheet: "none", dialog: "none", menu: "closed", toast: "none", mode: "edit", sel: "none", zone: "sofa", sensor: "pro", one: "sen0609", apply: "idle", cal: "off", cap: "capturing", fit: "good", dsync: "writing", stale: "no", tool: "select", snap: "on", cover: "room", mock: "closed" };
+const Z = { sofa: { name: "Sofa", color: "sofa", clears: 30, slot: 1, sync: "synced" }, desk: { name: "Desk", color: "desk", clears: 120, slot: 2 }, entry: { name: "Doorway entry", color: "entry", clears: 5, slot: 0 } };
+const VB_WIDE = "-440 -110 1160 770", VB_ROOM = "-60 -100 560 740";
+const phone = matchMedia("(max-width: 819px)");
+const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const ico = (id, cls = "") => `<svg class="i i-sm ${cls}"><use href="#i-${id}"/></svg>`;
+const ok = (cond) => cond.split(/[; ]/).filter(Boolean).every((c) => {
+  const neg = c.includes("!="), [k, v] = c.split(neg ? "!=" : "="), hit = v.split("|").includes(st[k]);
+  return neg ? !hit : hit;
+});
+const syncOf = (k) => (Z[k].slot === 0 ? "ha" : k === "desk" && !Z[k].sync ? st.dsync : Z[k].sync || "synced");
+const syncBadge = (s) => ({
+  synced: `<span class="sync ok">${ico("check")}Synced</span>`,
+  writing: `<span class="sync busy">${ico("spin", "spin")}Writing</span>`,
+  failed: `<span class="sync bad">${ico("alert")}Failed</span>`,
+  ha: "",
+})[s];
+const runsOn = (z) => (z.slot ? `<span class="badge dev">Slot ${z.slot}</span>` : `<span class="badge">Home Assistant</span>`);
+const arc = (cx, r) => `M${(cx - r * 0.866).toFixed(1)} ${(r * 0.5).toFixed(1)}A${r} ${r} 0 0 0 ${(cx + r * 0.866).toFixed(1)} ${(r * 0.5).toFixed(1)}`;
+
+function renderZones() {
+  const used = Object.values(Z).filter((z) => z.slot).length;
+  $$("[data-slotcount]").forEach((e) => (e.textContent = `Device slots ${used} of 4`));
+  for (const [k, z] of Object.entries(Z)) {
+    const s = syncOf(k);
+    $(`[data-zrow="${k}"]`).innerHTML =
+      `<svg class="i ck"><use href="#i-check"/></svg>` +
+      `<span><span class="t1"><span class="sw" style="background:var(--z-${z.color})"></span><span class="nm">${z.name}</span></span>` +
+      `<span class="t2">Clears after ${z.clears} s${s === "failed" ? `<span class="sync bad">Pro did not confirm the shape</span>` : ""}</span></span>` +
+      `<span class="end">${runsOn(z)}${syncBadge(s)}</span>`;
+    $$(`[data-zkey="${k}"]`).forEach((e) => e.toggleAttribute("hidden", st.toast === "zone" && st.zone === k));
+    $(`[data-zpoly="${k}"]`).classList.toggle("sel", st.sel === "zone" && st.zone === k);
+  }
+  const k = st.zone, z = Z[k], s = syncOf(k);
+  $('[data-zf="title"]').textContent = z.name;
+  $('[data-zf="name"]').value = z.name;
+  $('[data-zf="clears"]').value = z.clears;
+  $('[data-zf="sw"]').style.background = `var(--z-${z.color})`;
+  $('[data-zf="toast"]').textContent = `${z.name} deleted`;
+  $$("[data-zcolor]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.zcolor === z.color));
+  $$("[data-slot]").forEach((b) => {
+    const i = +b.dataset.slot;
+    b.setAttribute("aria-pressed", z.slot === i);
+    if (!i) return;
+    const owner = Object.entries(Z).find(([o, oz]) => o !== k && oz.slot === i);
+    b.dataset.owner = owner ? owner[0] : "";
+    b.title = owner ? `Swap with ${owner[1].name}` : "";
+    b.innerHTML = `<span>Slot ${i}</span>` + (owner ? `<small>${ico("swap")}${owner[1].name}</small>` : z.slot === i ? `<small>${ico("check")}</small>` : `<small>Free</small>`);
+  });
+  $('[data-zf="slotnote"]').innerHTML = z.slot
+    ? `${ico("info")}<span>Slot ${z.slot} runs on the Pro and keeps working while Home Assistant is down.</span>`
+    : `${ico("info")}<span>Home Assistant runs this zone from target positions. It stops while Home Assistant is down.</span>`;
+  $('[data-zf="syncsec"]').innerHTML = {
+    synced: `<div class="sec-h"><span class="sync ok">${ico("check")}Synced to the Pro</span></div>`,
+    writing: `<div class="sec-h"><span class="sync busy">${ico("spin", "spin")}Writing to the Pro</span></div>`,
+    failed: `<div class="sec-h"><span class="sync bad">${ico("alert")}Failed: Pro did not confirm the shape</span><button class="btn text sm" data-set="dsync=writing">${ico("retry")}Retry</button></div>`,
+    ha: `<div class="sec-h"><span class="muted">Saved in Home Assistant</span></div>`,
+  }[s];
+}
+
+function render() {
+  for (const [k, v] of Object.entries(st)) document.documentElement.dataset[k] = v;
+  $$("[data-show]").forEach((e) => e.toggleAttribute("hidden", !ok(e.dataset.show)));
+  $$("[data-set][aria-pressed]").forEach((e) => e.setAttribute("aria-pressed", ok(e.dataset.set)));
+  $$("[data-toggle]").forEach((e) => e.setAttribute(e.getAttribute("role") === "switch" ? "aria-checked" : "aria-pressed", st[e.dataset.toggle] === (e.dataset.toggle === "snap" ? "on" : "wedge")));
+  $("#cv").setAttribute("viewBox", phone.matches && st.cover === "room" ? VB_ROOM : VB_WIDE);
+  renderZones();
+}
+
+document.addEventListener("click", (ev) => {
+  const slot = ev.target.closest("[data-slot]");
+  if (slot) {
+    const z = Z[st.zone], i = +slot.dataset.slot, owner = slot.dataset.owner;
+    if (owner) { Z[owner].slot = z.slot; Z[owner].sync = Z[owner].slot ? "writing" : undefined; }
+    if (z.slot !== i) { z.slot = i; z.sync = i ? "writing" : undefined; }
+    return render();
+  }
+  const col = ev.target.closest("[data-zcolor]");
+  if (col && Z[st.zone]) { if (["sofa", "desk", "entry"].includes(col.dataset.zcolor)) Z[st.zone].color = col.dataset.zcolor; return render(); }
+  const tg = ev.target.closest("[data-toggle]");
+  if (tg) { const k = tg.dataset.toggle; st[k] = k === "snap" ? (st.snap === "on" ? "off" : "on") : st.cover === "room" ? "wedge" : "room"; return render(); }
+  const segb = ev.target.closest(".seg button:not([data-set])");
+  if (segb) { $$("button", segb.parentElement).forEach((x) => x.setAttribute("aria-pressed", x === segb)); return; }
+  const sw = ev.target.closest(".toggle[role=switch]");
+  if (sw) { sw.setAttribute("aria-checked", sw.getAttribute("aria-checked") !== "true"); return; }
+  const use = ev.target.closest("[data-use]");
+  if (use) { const r = $("#" + use.dataset.use); r.value = 3.4; r.dispatchEvent(new Event("input", { bubbles: true })); return; }
+  const b = ev.target.closest("[data-set]");
+  if (st.menu === "open" && !ev.target.closest(".menu")) st.menu = "closed";
+  if (b) {
+    b.dataset.set.split(" ").forEach((p) => { const [k, v] = p.split("="); st[k] = v; });
+  }
+  render();
+});
+
+document.addEventListener("input", (ev) => {
+  const r = ev.target;
+  if (r.type !== "range") return;
+  const v = +r.value, out = r.parentElement.querySelector("output");
+  if (out) out.textContent = (r.dataset.fixed ? v.toFixed(+r.dataset.fixed) : v) + (r.dataset.unit || "");
+  if (r.id === "mr") {
+    const d = `M210 0L${(210 - v * 86.6).toFixed(1)} ${v * 50}A${v * 100} ${v * 100} 0 0 0 ${(210 + v * 86.6).toFixed(1)} ${v * 50}Z`;
+    $("#proWedge").setAttribute("d", d); $("#proWedgeH").setAttribute("d", d);
+    const l = $("#proMaxL"); l.textContent = v.toFixed(1) + " m"; l.setAttribute("x", (202 - v * 86.6).toFixed(1)); l.setAttribute("y", v * 50 + 21);
+  }
+  if (r.dataset.ring) {
+    const p = $("#" + r.dataset.ring), l = $("#" + r.dataset.ring + "L"), rad = v * 100;
+    p.setAttribute("d", arc(90, rad));
+    l.textContent = `${r.dataset.ringl} ${v.toFixed(+r.dataset.fixed)} m`;
+    if (r.dataset.ring === "rMin") l.setAttribute("y", rad + 28);
+    else { l.setAttribute("x", (98 + rad * 0.866).toFixed(1)); l.setAttribute("y", (rad * 0.5 + 6).toFixed(1)); }
+  }
+  if (r.closest("[data-show*='sel=one']") || r.dataset.ring) { if (st.apply !== "idle") { st.apply = "idle"; render(); } }
+});
+
+document.addEventListener("keydown", (ev) => {
+  if (ev.key !== "Escape") return;
+  if (st.dialog !== "none") st.dialog = "none";
+  else if (st.sheet !== "none") st.sheet = "none";
+  else if (st.menu === "open") st.menu = "closed";
+  else if (st.cal !== "off") st.cal = "off";
+  else st.sel = "none";
+  render();
+});
+phone.addEventListener("change", render);
+render();
+</script>
+</body>
+</html>
