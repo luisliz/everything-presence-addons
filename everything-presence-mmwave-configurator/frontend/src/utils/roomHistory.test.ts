@@ -4,12 +4,18 @@ import test from 'node:test';
 import {
   ROOM_HISTORY_LIMIT,
   applyRoomSnapshot,
+  createHistory,
   createRoomHistory,
+  pushHistory,
   pushRoomHistory,
+  redoHistory,
   redoRoomHistory,
   snapshotRoom,
+  snapshotZones,
   snapshotsEqual,
+  undoHistory,
   undoRoomHistory,
+  zonesSnapshotsEqual,
 } from './roomHistory.ts';
 
 const room = () => ({
@@ -147,4 +153,34 @@ test('snapshot equality ignores key order', () => {
   const b = { ...a };
   assert.equal(snapshotsEqual(a, b), true);
   assert.equal(snapshotsEqual(a, snapshotRoom({ ...room(), doors: [] })), false);
+});
+
+const zonesState = () => ({
+  zones: [{ id: 'Zone 1', type: 'regular', x: 0, y: 0, width: 1000, height: 1000, enabled: true }],
+  polygonZones: [{ id: 'Zone 1', type: 'regular', vertices: [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 500, y: 800 }] }],
+});
+
+test('zones snapshot deep copies rectangles and polygon vertices', () => {
+  const live = zonesState();
+  const snapshot = snapshotZones(live);
+  live.zones[0].x = 999;
+  live.polygonZones[0].vertices[2].y = 999;
+  assert.equal(snapshot.zones[0].x, 0);
+  assert.equal(snapshot.polygonZones[0].vertices[2].y, 800);
+  assert.equal(zonesSnapshotsEqual(snapshot, snapshotZones(zonesState())), true);
+  assert.equal(zonesSnapshotsEqual(snapshot, snapshotZones(live)), false);
+});
+
+test('the generic history drives zones undo and redo', () => {
+  const before = snapshotZones(zonesState());
+  const after = snapshotZones({ ...zonesState(), polygonZones: [] });
+
+  const history = pushHistory(createHistory(), before);
+  const undone = undoHistory(history, after);
+  assert.ok(undone);
+  assert.equal(undone.snapshot.polygonZones.length, 1);
+
+  const redone = redoHistory(undone.history, undone.snapshot);
+  assert.ok(redone);
+  assert.equal(redone.snapshot.polygonZones.length, 0);
 });

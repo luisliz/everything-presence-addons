@@ -41,3 +41,12 @@ export function deleteVertex<T extends PolygonVertex>(vertices: T[], index: numb
   if (!canDeleteVertex(vertices, index)) return vertices;
   return vertices.filter((_, idx) => idx !== index);
 }
+
+export function insertEdgeMidpoint<T extends PolygonVertex>(vertices: T[], edgeIndex: number): PolygonVertex[] {
+  const a = vertices[edgeIndex];
+  const b = vertices[(edgeIndex + 1) % vertices.length];
+  if (!a || !b) return vertices;
+  const next: PolygonVertex[] = [...vertices];
+  next.splice(edgeIndex + 1, 0, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  return next;
+}

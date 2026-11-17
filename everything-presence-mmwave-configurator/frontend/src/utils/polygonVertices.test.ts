@@ -1,7 +1,7 @@
 // @ts-nocheck -- Node's built-in runner supplies these modules; frontend production types stay dependency-free.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MIN_POLYGON_VERTICES, canDeleteVertex, deleteVertex } from './polygonVertices.ts';
+import { MIN_POLYGON_VERTICES, canDeleteVertex, deleteVertex, insertEdgeMidpoint } from './polygonVertices.ts';
 
 const square = [
   { x: 0, y: 0 },
@@ -58,4 +58,17 @@ test('tolerates missing vertex lists', () => {
   assert.equal(canDeleteVertex(undefined, 0), false);
   assert.equal(canDeleteVertex(null, 0), false);
   assert.equal(canDeleteVertex([], 0), false);
+});
+
+test('inserting an edge midpoint places the vertex after the edge start', () => {
+  assert.deepEqual(insertEdgeMidpoint(square, 1), [
+    { x: 0, y: 0 },
+    { x: 1000, y: 0 },
+    { x: 1000, y: 500 },
+    { x: 1000, y: 1000 },
+    { x: 0, y: 1000 },
+  ]);
+  // The closing edge wraps back to the first vertex.
+  assert.deepEqual(insertEdgeMidpoint(square, 3).at(-1), { x: 0, y: 500 });
+  assert.equal(insertEdgeMidpoint(square, 9), square);
 });
