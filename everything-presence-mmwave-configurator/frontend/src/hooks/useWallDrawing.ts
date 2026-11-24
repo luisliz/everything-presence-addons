@@ -1,18 +1,38 @@
 import { useState, useCallback } from 'react';
-import { Point } from '../components/RoomCanvas';
+import type { Point } from '../components/RoomCanvas';
+import { findChainAnchor } from '../utils/wallChain';
 
 interface UseWallDrawingOptions {
   snapGridMm: number;
   onPointsChange: (points: Point[]) => void;
+  /** A finished chain on a closed outline: first and last point sit on the outline. */
+  onChainComplete: (chain: Point[]) => void;
+  onStartRejected?: () => void;
   currentPoints: Point[];
 }
 
-export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: UseWallDrawingOptions) {
+/**
+ * Two drawing modes share one tool:
+ *
+ * - `'new'`: no closed outline yet. Every click commits a corner, so the
+ *   outline grows on the canvas and the first corner closes it.
+ * - `'extend'`: the outline is a closed ring. The chain stays in local state
+ *   until it lands back on the ring, then `onChainComplete` splices it in as
+ *   one edit. Nothing is committed for a chain that is abandoned.
+ */
+export function useWallDrawing({
+  snapGridMm,
+  onPointsChange,
+  onChainComplete,
+  onStartRejected,
+  currentPoints,
+}: UseWallDrawingOptions) {
   const [isDrawingWall, setIsDrawingWall] = useState(false);
+  const [mode, setMode] = useState<'new' | 'extend'>('new');
+  const [chain, setChain] = useState<Point[]>([]);
   const [pendingStart, setPendingStart] = useState<Point | null>(null);
   const [previewPoint, setPreviewPoint] = useState<Point | null>(null);
 
-  // Snap helpers
   const snapPointToGrid = useCallback(
     (pt: Point) => {
       if (!snapGridMm || snapGridMm <= 0) return pt;
@@ -42,6 +62,13 @@ export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: Us
     [currentPoints]
   );
 
+  /** Corners and walls of the ring are magnets while extending; elsewhere only corners are. */
+  const snapToRing = useCallback(
+    (pt: Point) =>
+      mode === 'extend' ? (findChainAnchor(currentPoints, pt)?.point ?? pt) : snapToExisting(pt),
+    [currentPoints, mode, snapToExisting]
+  );
+
   const snapDirection = useCallback((start: Point, end: Point) => {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
@@ -61,11 +88,46 @@ export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: Us
     return { x: start.x + signX * mag, y: start.y + signY * mag };
   }, []);
 
+  const reset = useCallback(() => {
+    setChain([]);
+    setPendingStart(null);
+    setPreviewPoint(null);
+  }, []);
+
   const handleCanvasClick = useCallback(
     (pt: Point) => {
       if (!isDrawingWall) return;
 
       const gridAligned = snapPointToGrid(pt);
+
+      if (mode === 'extend') {
+        if (!pendingStart) {
+          const anchor = findChainAnchor(currentPoints, gridAligned);
+          if (!anchor) {
+            onStartRejected?.();
+            return;
+          }
+          setChain([anchor.point]);
+          setPendingStart(anchor.point);
+          return;
+        }
+        const constrained = snapDirection(pendingStart, gridAligned);
+        const anchor = findChainAnchor(currentPoints, constrained);
+        if (anchor) {
+          const landed = [...chain, anchor.point];
+          const same = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
+          // A chain that only touches the ring twice adds nothing; keep drawing.
+          if (landed.length === 2 && same(landed[0], landed[1])) return;
+          setIsDrawingWall(false);
+          reset();
+          onChainComplete(landed);
+          return;
+        }
+        setChain([...chain, constrained]);
+        setPendingStart(constrained);
+        return;
+      }
+
       const snapped = snapToExisting(gridAligned);
 
       // First click: set pending start
@@ -86,8 +148,7 @@ export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: Us
       if (isClosing && current.length >= 2) {
         // Close the loop without adding a duplicate point
         setIsDrawingWall(false);
-        setPendingStart(null);
-        setPreviewPoint(null);
+        reset();
         return;
       }
 
@@ -105,7 +166,20 @@ export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: Us
       // Set the endpoint as the new start for the next segment
       setPendingStart(endPoint);
     },
-    [isDrawingWall, pendingStart, currentPoints, snapPointToGrid, snapToExisting, snapDirection, onPointsChange]
+    [
+      chain,
+      currentPoints,
+      isDrawingWall,
+      mode,
+      onChainComplete,
+      onPointsChange,
+      onStartRejected,
+      pendingStart,
+      reset,
+      snapDirection,
+      snapPointToGrid,
+      snapToExisting,
+    ]
   );
 
   const handleCanvasMove = useCallback(
@@ -117,23 +191,21 @@ export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: Us
       // Apply same snapping to preview
       const gridAligned = snapPointToGrid(pt);
       const constrained = snapDirection(pendingStart, gridAligned);
-      const snapped = snapToExisting(constrained);
-      setPreviewPoint(snapped);
+      setPreviewPoint(snapToRing(constrained));
     },
-    [isDrawingWall, pendingStart, snapPointToGrid, snapDirection, snapToExisting]
+    [isDrawingWall, pendingStart, snapPointToGrid, snapDirection, snapToRing]
   );
 
   const startDrawing = useCallback(() => {
     setIsDrawingWall(true);
-    setPendingStart(null);
-    setPreviewPoint(null);
-  }, []);
+    setMode(currentPoints.length >= 3 ? 'extend' : 'new');
+    reset();
+  }, [currentPoints.length, reset]);
 
   const stopDrawing = useCallback(() => {
     setIsDrawingWall(false);
-    setPendingStart(null);
-    setPreviewPoint(null);
-  }, []);
+    reset();
+  }, [reset]);
 
   /**
    * Drop the point that was just drawn. This is a drawing-mode tool, not a
@@ -142,6 +214,13 @@ export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: Us
    */
   const removeLastPoint = useCallback(() => {
     if (!isDrawingWall) return;
+    if (mode === 'extend') {
+      const next = chain.slice(0, -1);
+      setChain(next);
+      setPendingStart(next.length ? next[next.length - 1] : null);
+      setPreviewPoint(null);
+      return;
+    }
     if (currentPoints.length > 0) {
       const newPoints = currentPoints.slice(0, -1);
       onPointsChange(newPoints);
@@ -149,10 +228,12 @@ export function useWallDrawing({ snapGridMm, onPointsChange, currentPoints }: Us
       setPendingStart(newPoints.length ? newPoints[newPoints.length - 1] : null);
       setPreviewPoint(null);
     }
-  }, [currentPoints, isDrawingWall, onPointsChange]);
+  }, [chain, currentPoints, isDrawingWall, mode, onPointsChange]);
 
   return {
     isDrawingWall,
+    /** Corners placed so far while extending a closed outline, starting with the anchor. */
+    chain,
     pendingStart,
     previewPoint,
     handleCanvasClick,

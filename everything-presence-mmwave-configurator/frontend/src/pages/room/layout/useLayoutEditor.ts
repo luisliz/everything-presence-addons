@@ -54,6 +54,7 @@ import {
 } from '../../../utils/roomRotation';
 import type { RoomShapePoint } from '../../../utils/roomShapes';
 import { stableStringify } from '../../../utils/stableStringify';
+import { spliceChainIntoRing } from '../../../utils/wallChain';
 import { NO_SELECTION, type Selection } from '../types';
 
 type Point = { x: number; y: number };
@@ -233,7 +234,7 @@ export function useLayoutEditor({
             locked: shell?.locked ? true : undefined,
             lockedSegments: lockedSegments.length ? lockedSegments : undefined,
           },
-          ...(options.doors?.length ? { doors: options.doors } : {}),
+          ...(options.doors ? { doors: options.doors } : {}),
         },
         options,
       );
@@ -261,9 +262,32 @@ export function useLayoutEditor({
   const drawing = useWallDrawing({
     snapGridMm: gridMm,
     onPointsChange: changePoints,
+    onChainComplete: (chain) => {
+      const current = roomRef.current;
+      const shell = current.roomShell;
+      const result = spliceChainIntoRing(
+        {
+          points: pointsOf(current),
+          doors: current.doors,
+          lockedSegments: shell?.lockedSegments,
+        },
+        chain,
+      );
+      if (!result) {
+        notify('End the walls on a corner or a wall of the outline.');
+        return;
+      }
+      changePoints(result.points, {
+        lockedSegments: result.lockedSegments,
+        doors: result.doors,
+      });
+      select(NO_SELECTION);
+    },
+    onStartRejected: () =>
+      notify('Start on a corner or a wall of the outline.'),
     currentPoints: pointsOf(room),
   });
-  const { stopDrawing, setIsDrawingWall, setPendingStart } = drawing;
+  const { stopDrawing, startDrawing, setPendingStart } = drawing;
 
   const [doorMode, setDoorMode] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -321,10 +345,10 @@ export function useLayoutEditor({
       if (next !== 'select') select(NO_SELECTION);
       if (next === 'walls') {
         setActiveShape(null);
-        setIsDrawingWall(true);
+        startDrawing();
       }
     },
-    [notify, select, setIsDrawingWall, stopDrawing],
+    [notify, select, startDrawing, stopDrawing],
   );
 
   useEffect(() => {

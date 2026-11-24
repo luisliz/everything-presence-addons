@@ -8,6 +8,7 @@ import { useCustomAssets } from '../hooks/useCustomAssets';
 import { formatLengthLabel } from '../utils/lengthLabels';
 import { getDoorGeometry } from '../utils/doorGeometry';
 import { canvasLayerProps } from '../utils/canvasLayers';
+import { closestPointOnSegment } from '../utils/wallChain';
 import { MARKER_SCALE_MAX, MARKER_SCALE_MIN } from '../utils/deviceMarkerSettings';
 import { type CanvasCoverage, type SensorCoverageConfig, resolveCanvasCoverage, segmentIntersection } from '../utils/coverage';
 import { useMediaQuery } from '../hooks/useMediaQuery';
@@ -101,6 +102,8 @@ interface RoomCanvasProps {
   onDragStateChange?: (isDragging: boolean) => void;
   previewFrom?: Point | null;
   previewTo?: Point | null;
+  /** Corners already placed in the current wall run, drawn before the rubber band. */
+  previewChain?: Point[];
   onSegmentHover?: (index: number | null) => void;
   onSegmentSelect?: (index: number | null) => void;
   hoveredSegment?: number | null;
@@ -133,6 +136,8 @@ interface RoomCanvasProps {
   onDoorSelect?: (id: string | null) => void;
   onDoorChange?: (door: Door) => void;
   isDoorPlacementMode?: boolean;
+  /** While drawing walls a corner is a snap target for the next click, not a drag grip. */
+  isWallDrawingMode?: boolean;
   onWallSegmentClick?: (segmentIndex: number, positionOnSegment: number) => void;
   onDoorDragStart?: (doorId: string, x: number, y: number) => void;
   onDoorDragMove?: (x: number, y: number) => void;
@@ -374,22 +379,6 @@ const isPointInPolygon = (point: Point, polygon: Point[]): boolean => {
   return inside;
 };
 
-// Find the closest point on a line segment to a given point
-const closestPointOnSegment = (point: Point, segStart: Point, segEnd: Point): Point => {
-  const dx = segEnd.x - segStart.x;
-  const dy = segEnd.y - segStart.y;
-  const lengthSq = dx * dx + dy * dy;
-
-  if (lengthSq === 0) return segStart; // Segment is a point
-
-  // Project point onto the line, clamping to segment bounds
-  const t = Math.max(0, Math.min(1, ((point.x - segStart.x) * dx + (point.y - segStart.y) * dy) / lengthSq));
-
-  return {
-    x: segStart.x + t * dx,
-    y: segStart.y + t * dy,
-  };
-};
 
 // Get the four corners of a rotated rectangle (furniture)
 const getFurnitureCorners = (
@@ -588,6 +577,7 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
   onDragStateChange,
   previewFrom = null,
   previewTo = null,
+  previewChain = [],
   onSegmentHover,
   onSegmentSelect,
   hoveredSegment,
@@ -610,6 +600,7 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
   onDoorSelect,
   onDoorChange,
   isDoorPlacementMode,
+  isWallDrawingMode,
   onWallSegmentClick,
   onDoorDragStart,
   onDoorDragMove,
@@ -1152,7 +1143,8 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
     }
 
     if (e.button !== 0 || !safePoints.length) return;
-    if (lockShell) return;
+    // While drawing walls, a press near a wall is the next corner, not a wall drag or selection.
+    if (lockShell || isWallDrawingMode) return;
     const svgPoint = getSvgPoint(e as any, svgRef.current);
     if (!svgPoint) return;
     const cx = svgPoint.x - HALF;
@@ -1280,7 +1272,7 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
           size: markerSize,
           opacity: markerOpacity,
           iconUrl: deviceIconUrl,
-          iconRotationDeg: safePlacement.mountType === 'ceiling' ? (safePlacement.rotationDeg ?? 0) : 0,
+          iconRotationDeg: safePlacement.rotationDeg ?? 0,
           cursor: markerCursor,
         }}
         onMarkerPointerDown={handleDevicePointerDown}
@@ -1576,6 +1568,16 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
             {/* Endpoint handles for the selected wall are drawn in the handles
                 layer at the end of the canvas, for the same reason. */}
           </g>
+        )}
+        {previewChain.length > 1 && (
+          <polyline
+            points={previewChain.map((p) => { const c = toCanvasCoord(p); return `${c.x},${c.y}`; }).join(' ')}
+            fill="none"
+            stroke="#a855f7"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            vectorEffect="non-scaling-stroke"
+          />
         )}
         {previewFrom && (
           (() => {
@@ -1958,9 +1960,9 @@ export const RoomCanvas: React.FC<RoomCanvasProps> = ({
             furniture item can never bury the grips of the item beside it. */}
         <g
           {...canvasLayerProps('handles')}
-          // In door placement mode a click belongs to the wall under the
-          // pointer, so the handles stay visible but let it through.
-          style={isDoorPlacementMode ? { pointerEvents: 'none' } : undefined}
+          // In door placement and wall drawing modes a click belongs to the
+          // wall or corner under the pointer, so the handles stay visible but let it through.
+          style={isDoorPlacementMode || isWallDrawingMode ? { pointerEvents: 'none' } : undefined}
         >
           {/* Wall corner handles */}
           {!lockShell &&

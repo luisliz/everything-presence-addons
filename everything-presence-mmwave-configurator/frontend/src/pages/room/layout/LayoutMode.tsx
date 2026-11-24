@@ -718,6 +718,7 @@ export const LayoutMode = ({
         showRadar={
           display.showDeviceRadar && placement?.mountType !== 'ceiling'
         }
+        previewChain={drawing.chain}
         previewFrom={drawing.pendingStart}
         previewTo={drawing.pendingStart ? drawing.previewPoint : null}
         hoveredSegment={hoveredWall}
@@ -746,6 +747,7 @@ export const LayoutMode = ({
         onDoorSelect={(id) => select(id ? { kind: 'door', id } : NO_SELECTION)}
         onDoorChange={editor.changeDoor}
         isDoorPlacementMode={editor.doorMode}
+        isWallDrawingMode={tool === 'walls'}
         onWallSegmentClick={editor.placeDoor}
         onDoorDragStart={(id) => editor.canvas.doorDragStart(id)}
         onDoorDragEnd={editor.canvas.release}
